@@ -2,12 +2,14 @@
 layout: post
 title: "How open source community helps me"
 author: "Srikanth Venugopalan"
+permalink: how-open-source-community-helps-me
 comments: true
+published: false
 ---
 
 There has been a lot of buzz about open-source software lately. Thanks to sites like [github](http://www.github.com), more and more people are looking at open-source software, and thankfully, the contributing community also seems to be growing.
 
-Events like [FOSS](http://www.foxx.in) helps promote awareness of open source software in India, where majority of the developers are working for companies that handle large 'enterpricey' clients.
+Events like [FOSS](http://www.foss.in) helps promote awareness of open source software in India, where majority of the developers are working for companies that handle large 'enterpricey' clients.
 
 Up until a few years ago, I belonged to the above mentioned category of developers. I have had my fair share of projects that I am not proud of. It is not so much the nature of work that I am complaining, but the environment. I have worked for clients from various parts of the world and each one of them had different kind of restrictions. 'Trust' was almost non-existent. In fact, one of the clients denied me internet access.
 

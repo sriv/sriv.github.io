@@ -1,6 +1,6 @@
 ---
 layout : layout
-title : SiteName
+title : sriv.github.com
 ---
 
 <ul class="posts">
