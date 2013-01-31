@@ -13,6 +13,93 @@
   <entry>
     <id>http://sriv.github.com/</id>
     <link type="text/html" rel="alternate" href="http://sriv.github.com/"/>
+    <title>Pragmatism and Purity</title>
+    <updated>Liquid syntax error: Error - Filter 'date' does not have a default value for 'format' and no value was supplied</updated>
+    <author>
+      <name></name>
+      <uri>http://sriv.github.com/</uri>
+    </author>
+    <content type="html"><p>One of the lessons I've learnt from experience is that there are good systems, and there are bad systems. But they do the job for their users. The difference between good and bad comes into picture only when the systems fail to adapt or evolve at the same (if not faster pace) than the user's needs.</p>
+<p>I am motivated to write this post by some of the messages exchanged between me and another user at <a href="http://stackoverflow.com/questions/14374075/timeout-connecting-to-sql-server-express-2012#comment20060455_14374075">StackOverflow</a>. The question admits inefficiencies in the system, and seeks a way to work within the limitations. Personal abuses aside, there is one school of thought that mandates drastic changes to fix the root cause. </p>
+<p>In reality, very few root causes are easily fixable. If they were, I'd expect them to be fixed already and all conversations around them would not be happening.</p>
+<p>I've been involved in multiple transformation projects, where the challenge is to upgrade the system landscape without the users' lives being disrupted. Martin Fowler wrote about <a href="http://martinfowler.com/bliki/StranglerApplication.html">Strangulation Pattern</a>, where he gives out some points on how this could help in re-writing legacy applications. There is a discussion on <a href="http://stackoverflow.com/questions/1118804/application-strangler-pattern-experiences-thoughts">StackOverflow</a> which has some good insights on the challenges and approach that can be taken to phase out an application.</p>
+<p>On the practical front, there are various types of challenges, and not all of them are technical. But this is a bigger topic, and possibly worth another writeup.</p>
+<p>However, key points are -
+1) There is no perfect system. No matter how much you optimize, there is always going to be a few areas to improve upon. The main reason is Software development projects work towards a moving target - changing business.
+2) A purist is someone who is tempted to do everything by the book, to write the perfect peace of software. A lot of this is driven by the personal drive to write the best piece of code. A pragmatic programmer, on the other hand, is someone who can weigh both sides and decide on a balance. 
+3) No one has infinite time or resource. So there is always going to be someone who draws the line on how perfect the software needs to be. Worse still, once a project is marked as complete, only a subset of the time/resource spent earlier is spent on maintaining it. Hence, there will be someone taking a call to do features or technical maintenance, and in most case, maintenance is driven by business needs.</p>
+<h3>Conclusion</h3>
+<p>While purism is good, and purists have a place to criticize (constructively, of course) projects, almost all of the ones I've come across lack something more important (at least in my mind) - empathy. A little pragmatism goes a long way in achieving the goals, but not at the cost of technical compromise. There are often decisions made, shortcuts taken which will make a purist cry. But sometimes, situations demand it. The fact that people are crying out for help indicates the urgency involved. However, part of being pragmatic also means - Track the system's technical debt. Close the debt as soon as possible, else there is a heavy price to pay later.</p>
+</content>
+  </entry>
+  
+  <entry>
+    <id>http://sriv.github.com/</id>
+    <link type="text/html" rel="alternate" href="http://sriv.github.com/"/>
+    <title>My sources for serendipitous learning</title>
+    <updated>Liquid syntax error: Error - Filter 'date' does not have a default value for 'format' and no value was supplied</updated>
+    <author>
+      <name></name>
+      <uri>http://sriv.github.com/</uri>
+    </author>
+    <content type="html"><p>A few days ago, I wrote a <a href="/how-open-source-community-helps-me.html">post</a> about how open source community help me. I've been thinking about it, and have realized that open source projects are one of my sources of learning what I have learnt. </p>
+<p>In this post, I will try to put my thoughts together on what else has helped me.</p>
+<p><em>disclaimer</em> - It's probably worth mentioning here that I like to keep discovering things I do not know about and spend some time getting familiar with it. Quite a few topics do not maintain my interest level, a handful do. The sources, methods mentioned here are my way of discovering and learning, it may not be for everyone.</p>
+<h3><em>At work</em></h3>
+<p><em>Pair Programming</em> - Pairing helps me at various levels. Sometimes, we end up talking about fundamentals of design, and some other times, we debate on what is a good name for a variable. What do I learn by this chit chat? 
+  - One more way of doing the same thing
+  - Another example of what won't work, before it actually doesn't
+  Pair programming isn't just two people sitting together in front of a large screen. I have paired with folks who do their homework, and the next morning we share notes. It is twice the reading/research I can do in a night.</p>
+<p><em>Community (debates/experiences)</em> - A community is as strong as the interaction. In my organization, the programmer community is very active, on a given day we discuss close to 10 topics actively. </p>
+<h3><em>Books</em></h3>
+<p>This is quite obvious. Right from the school days, books have been a very reliable source of knowledge. However, in school/college, we are fortunate enough to be prescribed a list of books that we should read. In professional world, we are always hunting for a good book on a topic. It becomes a discovery, when we find a book or a chapter that is brilliant.</p>
+<p>Stephen Hawking's <a href="http://www.hawking.org.uk/a-brief-history-of-time.html">A brief history of time</a> is one of the books that I answered a very basic question during my school days. Heisenberg's Uncertainty Principle is one of popular principles in physics. I had read various textbooks defining what it is. But it was Hawking's two and a half page description that actually made sense to me (if you haven't already, I would recommend reading chapter 4 of this book.  </p>
+<p>Now, I wasn't reading this book because I wanted to learn Heisenberg's principle. In fact, I read this book after I had completed my exams on the topic. And the fact that it made me learn the principle which I knew by heart, gave me that feeling which made me want to jump.</p>
+<h3><em>Coursera</em></h3>
+<p>Online courses have taken off in the recent past. And I have been following it as well. What is wonderful about sites like <a href="http://www.coursera.org">Coursera</a> is that there are a variety of course and most of the courses are concise. </p>
+<p>I enrolled into a a few courses. Naturally, one learning from each course is about the course itself. What's been serendipitous for me is the perspectives and side learnings. An example, I took the Machine Learning course conducted by Prof. Andrew Ng. </p>
+<p>Besides learning machine learning concepts/algorithms, I learnt to use Octave. But my a-ha moment was when Prof. Ng demonstrated how Vectorization can help optimize nested for loops. </p>
+<h3><em>Internet</em></h3>
+<p>Internet obviously is a wealth of knowledge. A few resources that I cherish/follow</p>
+<ul>
+<li>Ben Pierce's collection of articles on <a href="http://www.cis.upenn.edu/~bcpierce/courses/670Fall04/GreatWorksInPL.shtml">Great Works in Programming Languages</a></li>
+<li><a href="http://news.ycombinator.com">Hacker News</a></li>
+<li><a href="http://lambda-the-ultimate.org/">Lambda, the ultimate</a></li>
+</ul>
+</content>
+  </entry>
+  
+  <entry>
+    <id>http://sriv.github.com/</id>
+    <link type="text/html" rel="alternate" href="http://sriv.github.com/"/>
+    <title>Your search can be only as good as your data</title>
+    <updated>Liquid syntax error: Error - Filter 'date' does not have a default value for 'format' and no value was supplied</updated>
+    <author>
+      <name></name>
+      <uri>http://sriv.github.com/</uri>
+    </author>
+    <content type="html"><p>Very recently I was involved in a project that required us to implement a search feature. The setup is quite simple, and generic:</p>
+<p>1) An Administration Application - Responsible for authoring/creating products and its attributes.</p>
+<p>2) A catalogue application that also powers the public facing website, which has details about products.</p>
+<p>In this project, the product managers have been consolidating Product details in their respective areas for a while (a few years). We were tasked with retrofitting the search engine to use the data.</p>
+<p>Seems simple enough ? Here are few points that I learnt from this task.</p>
+<h3>Data issues can exist at all level</h3>
+<h3><em>Storage/Design</em></h3>
+<p>Bad data isn't just about <strong><em>wrong data types</em></strong>. Number stored as string, data-time woes combined with time zone complexities can be a data warehouse nightmare. Often, we had to add ad-hoc conditions to the data extraction logic.</p>
+<p><strong><em>Data integrity</em></strong> is another case, where legacy databases which have grown in an ad-hoc fashion, often as a result of silo-ed application development. This causes cross database lookup, often not protected by foreign keys and such. </p>
+<p>With such atomic databases being out of sync, data is duplicated and not in it's entirety. So <strong><em>de-duplication</em></strong> of data is one of the overheads. </p>
+<h3><em>Human Error</em></h3>
+<p>Most data collection mechanisms involve manual entry. <strong><em>Mis-spelling, mis-tagging, mis-classification etc. can have catastrophic effect</em></strong> in the long run. The effect is magnified when dependencies on such data get added. Not only the entity itself is polluted, but it ends up affecting the entire chain.</p>
+<p>Humans can be easily misguided, and lack of training can only make it worse. In some cases, excessive tagging is perceived as something that would boost up the product. Product managers have been religiously doing this. What they do not realize is <strong><em>too much data is noise</em></strong>, it is pollution.</p>
+<h3>Conclusion</h3>
+<p>Bad data can be caused due to bad design or poor data capture mechanism. Sometimes, bad data can be curated by manual tasks. Some other times, there are patterns of bad data, and some automated tasks can help clean it up. However, there is a good chance that the data is not cleaned up at all. </p>
+<p>No matter what tool/technology one looks at (be it Search tools like SOLR, or other data-warehouse tools) , the bottleneck in getting the right Search (or any analytics) is going to be data quality. These tools are mature enough to be close to perfect, given the perfect dataset. So, whenever there is a mismatch in expected v/s actual behaviour, I would first look at the data. Most problems/bugs that I have faced implementing a Search is because of bad data.</p>
+</content>
+  </entry>
+  
+  <entry>
+    <id>http://sriv.github.com/</id>
+    <link type="text/html" rel="alternate" href="http://sriv.github.com/"/>
     <title>How open source community helps me</title>
     <updated>Liquid syntax error: Error - Filter 'date' does not have a default value for 'format' and no value was supplied</updated>
     <author>
