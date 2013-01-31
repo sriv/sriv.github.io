@@ -16,10 +16,10 @@ I've been involved in multiple transformation projects, where the challenge is t
 
 On the practical front, there are various types of challenges, and not all of them are technical. But this is a bigger topic, and possibly worth another writeup.
 
-However, key points are -
-1) There is no perfect system. No matter how much you optimize, there is always going to be a few areas to improve upon. The main reason is Software development projects work towards a moving target - changing business.
-2) A purist is someone who is tempted to do everything by the book, to write the perfect peace of software. A lot of this is driven by the personal drive to write the best piece of code. A pragmatic programmer, on the other hand, is someone who can weigh both sides and decide on a balance. 
-3) No one has infinite time or resource. So there is always going to be someone who draws the line on how perfect the software needs to be. Worse still, once a project is marked as complete, only a subset of the time/resource spent earlier is spent on maintaining it. Hence, there will be someone taking a call to do features or technical maintenance, and in most case, maintenance is driven by business needs.
+### Some Observations 
+* There is no perfect system. No matter how much you optimize, there is always going to be a few areas to improve upon. The main reason is Software development projects work towards a moving target - changing business.
+* A purist is someone who is tempted to do everything by the book, to write the perfect peace of software. A lot of this is driven by the personal drive to write the best piece of code. A pragmatic programmer, on the other hand, is someone who can weigh both sides and decide on a balance. 
+* No one has infinite time or resource. So there is always going to be someone who draws the line on how perfect the software needs to be. Worse still, once a project is marked as complete, only a subset of the time/resource spent earlier is spent on maintaining it. Hence, there will be someone taking a call to do features or technical maintenance, and in most case, maintenance is driven by business needs.
 
-###Conclusion
+### In Summary
 While purism is good, and purists have a place to criticize (constructively, of course) projects, almost all of the ones I've come across lack something more important (at least in my mind) - empathy. A little pragmatism goes a long way in achieving the goals, but not at the cost of technical compromise. There are often decisions made, shortcuts taken which will make a purist cry. But sometimes, situations demand it. The fact that people are crying out for help indicates the urgency involved. However, part of being pragmatic also means - Track the system's technical debt. Close the debt as soon as possible, else there is a heavy price to pay later.
