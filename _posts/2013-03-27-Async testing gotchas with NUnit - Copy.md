@@ -4,7 +4,6 @@ title: "Async Controller testing gotchas with NUnit"
 author: "Srikanth Venugopalan"
 permalink: async-controller-testing-nunit-gotchas.html
 comments: true
-tags: "nunit async testing"
 ---
 
 NUnit released version 2.6.2 with support for testing asynchronous methods. I decided to give it a shot.
