@@ -10,6 +10,101 @@
     <lastBuildDate>Liquid error: Parameter count mismatch.</lastBuildDate></p>
 <pre><code>
 &lt;item&gt;
+  &lt;title&gt;Async Controller testing gotchas with NUnit&lt;/title&gt;
+  &lt;link&gt;http://sriv.github.com/&lt;/link&gt;
+  &lt;pubDate&gt;Liquid error: Parameter count mismatch.&lt;/pubDate&gt;
+  &lt;author&gt;&lt;/author&gt;
+  &lt;guid&gt;http://sriv.github.com/&lt;/guid&gt;
+  &lt;description&gt;<p>NUnit released version 2.6.2 with support for testing asynchronous methods. I decided to give it a shot.</p>
+<p>And my trial was to write some tests for an async WebApi controller. Lets say we have a controller called <code>UserController</code>. And I want to add an action called <code>Get</code> which looks like this - </p>
+<pre><code>public Task&lt;User&gt; Get(string userId)
+{
+        if (string.IsNullOrEmpty(userId))
+        {
+            throw new ArgumentException(&quot;No username specified.&quot;);
+        }
+
+        return Task.Factory.StartNew(
+            () =&gt;
+                {
+                    var user = userRepository.GetById(userId);
+                    if (user != null)
+                    {
+                        return user;
+                    }
+
+                    throw new HttpResponseException(Request.CreateErrorResponse(
+                        HttpStatusCode.NotFound, string.Format(&quot;{0} - username does not exist&quot;, userId)));
+                });
+}
+</code></pre>
+
+<p>Great, so we have an action that is asynchronous. Now there are two kinds of tests that we would have to write, one for the happy path, and another to ensure that the exception is thrown with the right properties set.</p>
+<p>Here's how I ended up writing the happy path test -</p>
+<pre><code>[Test]
+public async void ShouldGetUserDetails()
+{
+    var mockUserRepository = new Mock&lt;IUserRepository&gt;();
+    mockUserRepository.Setup(x =&gt; x.GetByUserName(It.IsAny&lt;string&gt;())).Returns(new User { UserName = &quot;foo&quot; });
+    var userController = new UserController(mockUserRepository.Object);
+
+    var user = await userController.Get(&quot;foo&quot;);
+
+    Assert.IsNotNull(user);
+    Assert.That(user.UserName, Is.EqualTo(&quot;foo&quot;));
+}
+</code></pre>
+
+<p>All good! The test passes. The only difference here is the use of <code>async</code> and <code>await</code> keywords in the test.</p>
+<p>Now comes the fun part, I tried writing tests to assert on the exception part. It took some effort and <a href="http://stackoverflow.com/questions/15634542/nunit-async-test-exception-assertion">guidance on StackOverflow</a> to figure out a way. The question has some examples of tests that I expected to work, but didn't.</p>
+<p>The question also lists out various scenarios where my attempts to write a test to assert the exception thrown wasn't working as expected. There are explanations in the accepted answer.</p>
+<p>Following the hint from the answer, I ended up writing a helper method that will help assert the exception thrown, along with specific properties to verify. Here is how I did it -</p>
+<pre><code>public static class AssertEx
+{
+    public static async Task ThrowsAsync&lt;TException&gt;(Func&lt;Task&gt; func) where TException : class
+    {
+        await ThrowsAsync&lt;TException&gt;(func, exception =&gt; { });
+    } 
+
+    public static async Task ThrowsAsync&lt;TException&gt;(Func&lt;Task&gt; func, Action&lt;TException&gt; action) where TException : class
+    {
+        var exception = default(TException);
+        var expected = typeof(TException);
+        Type actual = null;
+        try
+        {
+            await func();
+        }
+        catch (Exception e)
+        {
+            exception = e as TException;
+            actual = e.GetType();
+        }
+
+        Assert.AreEqual(expected, actual);
+        action(exception);
+    }
+}
+</code></pre>
+
+<p>And this is how I use it</p>
+<pre><code>[Test]
+public async void ShouldThrow404WhenNotFound()
+{
+    var mockUserRepository = new Mock&lt;IUserRepository&gt;();
+    mockUserRepository.Setup(x =&gt; x.GetByUserName(It.IsAny&lt;string&gt;())).Returns(default(User));
+    var userController = new UserController(mockUserRepository.Object) { Request = new HttpRequestMessage() };
+
+    Action&lt;HttpResponseException&gt; asserts = exception =&gt; Assert.That(exception.Response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    await AssertEx.ThrowsAsync(() =&gt; userController.Get(&quot;foo&quot;), asserts);
+}
+</code></pre>
+
+<p>Note that the asserts are now wrapped into an action and passed to <code>AssertEx.ThrowsAsync</code>.</p>
+&lt;/description&gt;
+&lt;/item&gt;
+
+&lt;item&gt;
   &lt;title&gt;Pragmatism and Purity&lt;/title&gt;
   &lt;link&gt;http://sriv.github.com/&lt;/link&gt;
   &lt;pubDate&gt;Liquid error: Parameter count mismatch.&lt;/pubDate&gt;
