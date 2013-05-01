@@ -28,6 +28,121 @@
 		<li>
 			<div class="idea">
 				
+					<h2><a class="postlink" href="">Ruby on Rack, Datamapper & Thin </a></h2>
+					<div class="postdate">
+						<ul>
+						
+						</ul>
+					</div>
+					<p>A while back I started a hobby project and wanted to try out a different tech stack, than the regular .net mvc or rails that I'm used to.</p>
+<p>And I was also looking for something very lightweight. I've used Rack as a middleware with rails application before, but not on its own. Although I was aware of Rack being capable of serving HTTP request on its own.</p>
+<p>I had a look at Sinatra as well, which is something I've played around briefly, might get around to writing some Sinatra based app sometime soon.</p>
+<p>Ok, so starting with Rack, I had to achieve the below goals</p>
+<ul>
+<li>Create routes</li>
+<li>Serve static content</li>
+<li>Serve content from database</li>
+<li>Keep the endpoints secure (https).</li>
+</ul>
+<h3>Routing</h3>
+<p>Rack enables one to create a <code>Proc</code> and execute it when invoked, via <code>map</code> method.</p>
+<p>An example of defining a Rack route would be something like</p>
+<pre><code>map &quot;/hello&quot; do
+    run Proc.new {|env| [200, {&quot;Content-Type&quot; =&gt; &quot;text/plain&quot;}, &quot;Hello world!&quot;]}
+end
+</code></pre>
+
+<p>If one were to put this in the <code>config.ru</code> file, fire up the app using <code>rackup</code>, it would expose <code>localhost:&lt;port&gt;/hello</code> as an endpoint that returns &quot;Hello World&quot;.</p>
+<p>So far so good, now how do we tell Rack to do something beyond &quot;Hello World&quot; ?</p>
+<p>I did this by creating a class that would take a request and process it. An example class that looks up a user would be like this </p>
+<pre><code>class UserLookup
+
+    def call(env)
+        load_messages   
+        @req = Rack::Request.new(env)
+        if @req.get?
+            user = User.first(:employee_id =&gt; @req.GET['employee_id'])
+            return [404, {&quot;Content-Type&quot; =&gt; &quot;text/plain&quot;}, [@messages[&quot;unrecognized_user&quot;]]] if user.nil? 
+            [200, {&quot;Content-Type&quot; =&gt; &quot;text/plain&quot;}, [user.to_json(:methods =&gt; [:reserved_books, :full_name, :interests])]]
+        else
+            [405, {&quot;Content-Type&quot; =&gt; &quot;text/plain&quot;}, [@messages[405]]]
+        end
+    end
+
+    private
+
+    def load_messages
+      @messages = YAML::load(File.read(File.expand_path('config/en.yml','.')))
+    end
+
+end
+</code></pre>
+
+<p>In <code>config.ru</code> add a mapping for this lookup like this</p>
+<pre><code>map &quot;/user&quot; do
+    run UserLookup.new
+end
+</code></pre>
+
+<p>Now this exposes another endpoint that would look like</p>
+<pre><code>localhost:&lt;port&gt;/user
+</code></pre>
+
+<p>Now, the <code>UserLookup</code> class needs to be designed to accept parameters. One way of sending the parameters is via querystring in the request. Rack request can lookup querystring using GET object.</p>
+<h3>Nested Routes</h3>
+<p>Nesting routes with Rack is simple enough</p>
+<pre><code>map &quot;/foo&quot; do
+    map &quot;/bar&quot; do
+        run FooBar.new
+    end
+    map &quot;/baz&quot; do
+        run FooBaz.new
+    end
+end
+</code></pre>
+
+<p>This will expose a &quot;/foo/bar&quot; and a &quot;/foo/baz&quot; endpoints. </p>
+<h3>Serving Static Content</h3>
+<p>Ok, so now we have all the requests hitting our application and each Route mapping invokes a Rack process. But like all other web applications, we have static resources to serve as well. In order to serve static content via Rack, it takes a different kind of mapping, like below -</p>
+<pre><code>map &quot;/scripts&quot; do
+    run Rack::Directory.new(File.expand_path(&quot;./scripts&quot;))
+end
+
+map &quot;/css&quot; do
+    run Rack::Directory.new(File.expand_path(&quot;./css&quot;))
+end
+
+map &quot;/img&quot; do
+    run Rack::Directory.new(File.expand_path(&quot;./img&quot;))
+end
+</code></pre>
+
+<p>And that's all it takes to serve all the content for a web application.</p>
+<h3>Setup Thin webserver.</h3>
+<p>Thin is a web server that is designed for higher throughput. More about Thin is available <a href="http://code.macournoyer.com/thin/">here
+</a>. Just adding the <code>thin</code> gem in the <code>GemFile</code> and doing a <code>bundle install</code> was enough to setup Thin for me. By default <code>rackup</code> opens up the application using Webrick. Installing <code>Thin</code> gem launches the application using Thin.</p>
+<h3>Why Thin?</h3>
+<p>There are various selling points for Thin. There is a comparison between the number of concurrent requests Thin can serve versus Mongrel, Webrick etc. So high concurrency is reason good enough.</p>
+<p>My motive was simple - I needed to have my website running under SSL (https), this was because my web application access the webcamera of the user using Webkit's <code>webkitGetUserMedia</code> API, and it is annoying how everytime there is a call to this API, the browser asks for confirmation. Secure sites require confirmation only once, and the browser (Chrome) remembers the action in subsequent requests.</p>
+<p>Thin comes with an option to enable SSL, so why not use it?</p>
+<p>Enabling SSL over Thin is straightforward enough. As a first step I had to generate a self-signed certificate.</p>
+<p>After that all I had to do was start Thin from the same directory as <code>config.ru</code> using these options</p>
+<p>thin start --ssl --ssl-key-file ../cert/server.key --ssl-cert-file ../cert/server.crt</p>
+<p>In absence of Thin, the other way to setup SSL is to have the application behind an <code>nginx</code> proxy and have <code>nginx</code> configured to use SSL.</p>
+<h3>Data access - Datamapper</h3>
+<p>I'll not repeat stuff here, I think Datamapper's website is elaborate enough to highlight &quot;<a href="http://datamapper.org/why.html">Why Datamapper?</a>&quot;</p>
+<p>However, I do want to put down my experiences using Datamapper (beyond regular table mappings). But that is possibly a different post in itself, this one has got long enough. </p>
+<p>One thing I can say is I am in love with Datamapper, especially since, these days, most of my ORM time is consumed by NHibernate!</p>
+
+					
+					<a href="#disqus_thread">Comments</a>
+				
+			</div>
+		</li>
+    
+		<li>
+			<div class="idea">
+				
 					<h2><a class="postlink" href="">Async Controller testing gotchas with NUnit</a></h2>
 					<div class="postdate">
 						<ul>
@@ -228,41 +343,13 @@ public async void ShouldThrow404WhenNotFound()
 			</div>
 		</li>
     
-		<li>
-			<div class="idea">
-				
-					<h2><a class="postlink" href="">How open source community helps me</a></h2>
-					<div class="postdate">
-						<ul>
-						
-						</ul>
-					</div>
-					<p>There has been a lot of buzz about open-source software lately. Thanks to sites like <a href="http://www.github.com">github</a>, more and more people are looking at open-source software, and thankfully, the contributing community also seems to be growing.</p>
-<p>Events like <a href="http://www.foss.in">FOSS</a> helps promote awareness of open source software in India, where majority of the developers are working for companies that handle large 'enterpricey' clients.</p>
-<p>Up until a few years ago, I belonged to the above mentioned category of developers. I have had my fair share of projects that I am not proud of. It is not so much the nature of work that I am complaining, but the environment. I have worked for clients from various parts of the world and each one of them had different kind of restrictions. 'Trust' was almost non-existent. In fact, one of the clients denied me internet access.</p>
-<p>In the above mentioned eco-system, I did manage to learn some stuff that kept my interests. Nevertheless, if I was to assess myself as a programmer today, I will say that I am still not half as good as I'd like to be. My list of topics of interest is growing by the day (and I hope that is a good thing!).</p>
-<p>So, if the infrastructure was not there, how was I to know whether I was writing code the right way? More importantly, how would I know if I am wasting my time re-inventing the wheel? Most importantly, how would I learn from the experts?</p>
-<p>One thing that has always helped me is - read others' code. I have come across code that blows my mind away, and code that makes me cry. </p>
-<p>More important than learning any language, is to be aware of the eco-system that exists around a language. In a consulting world, productivity matters. It matters for the clients, but even more it matters to me. </p>
-<p>Open source community (and by that I mean various projects/people) have shown me different paths and solutions to various problems.</p>
-<h3>An example</h3>
-<p>Take this blog, it is powered by <a href="https://github.com/code52/pretzel">pretzel</a>. I have been encouraged/nagged by various colleagues/friends to start a blog, but I have managed to procrastinate so far. When I finally got around to getting started, I wanted to have a light platform.</p>
-<p>Github pages/Jekyll was a choice, but I wanted something with a .NET flavour. I found <a href="https://github.com/code52/pretzel">pretzel</a>, and immediately fell in love with it.</p>
-<p>Now I could have just downloaded the program, and used it. It has an excellent wiki.</p>
-<p>But I decided to look at the code. And that is when I realized the guys were using <a href="http://github.com/loudej/firefly">Firefly</a>, a very light HTTP server built on .NET. This has given me a spark - I write a lot of tests (I practise TDD and Continuous Integration). Firefly could be something worth investigating as a replacement to IIS in at least some tests. This could save some deploy and configuration time!</p>
-<p>Now that was one lesson learnt. The other neat tool I came to know was <a href="https://github.com/Code52/DownmarkerWPF">MarkPad</a>. This is a neat tool to edit markdown, with side by side preview. A simple idea, well executed. Thanks again to Code52 guys.</p>
-<h3>Conclusion</h3>
-<p>What started off as a hunt for a blogging tool in .NET, not only led me to an answer (i.e Pretzel), but also led me to two other tools, that will come handy in other situations. This is good enough to keep me motivated to go through more such code online. At some point I wish to be in a more active(read contributing) state in this open source community than I am today.</p>
-
-					
-					<a href="#disqus_thread">Comments</a>
-				
-			</div>
-		</li>
-    
 </ul>
 <h3>OLDER</h3>
 <ul class="postArchive">
+
+	<li>
+		<span class="olderpostdate">  </span> <a class="postlink" href="">How open source community helps me</a>
+	</li>
 
 </ul>
 <p><script type="text/javascript">
