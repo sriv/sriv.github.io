@@ -2,7 +2,6 @@
 layout: post
 title: "Async Controller testing gotchas with NUnit"
 author: "Srikanth Venugopalan"
-permalink: async-controller-testing-nunit-gotchas.html
 comments: true
 ---
 

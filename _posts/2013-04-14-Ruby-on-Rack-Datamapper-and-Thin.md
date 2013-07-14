@@ -2,7 +2,6 @@
 layout: post
 title: "Ruby on Rack, Datamapper & Thin "
 author: "Srikanth Venugopalan"
-permalink: ruby-on-rack-datamapper-and-thin.html
 comments: true
 ---
 

@@ -2,7 +2,6 @@
 layout: post
 title: "Pragmatism and Purity"
 author: "Srikanth Venugopalan"
-permalink: pragmatism-and-purity.html
 comments: true
 ---
 

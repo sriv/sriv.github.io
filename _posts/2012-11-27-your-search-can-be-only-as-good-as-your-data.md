@@ -2,7 +2,6 @@
 layout: post
 title: "Your search can be only as good as your data"
 author: "Srikanth Venugopalan"
-permalink: your-search-can-be-only-as-good-as-your-data.html
 comments: true
 ---
 

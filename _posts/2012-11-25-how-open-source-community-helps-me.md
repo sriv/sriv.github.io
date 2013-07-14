@@ -2,7 +2,6 @@
 layout: post
 title: "How open source community helps me"
 author: "Srikanth Venugopalan"
-permalink: how-open-source-community-helps-me.html
 comments: true
 ---
 
