@@ -1,0 +1,29 @@
+---
+layout: nil
+---
+<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Feed Name</title>
+  <link href="http://sriv.github.com/"/>
+  <link type="application/atom+xml" rel="self" href="http://sriv.github.com/atom.xml"/>
+  <updated>{{ site.time | date_to_xmlschema }}</updated>
+  <id>http://sriv.github.com/</id>
+  <author>
+    <name>Author</name>
+    <email>Email</email>
+  </author>
+
+  {% for post in site.posts %}
+  <entry>
+    <id>http://sriv.github.com/{{ post.url }}</id>
+    <link type="text/html" rel="alternate" href="http://sriv.github.com/{{ post.url }}"/>
+    <title>{{ post.title | xml_escape }}</title>
+    <updated>{{ post.date | date_to_xmlschema }}</updated>
+    <author>
+      <name>{{ post.author }}</name>
+      <uri>http://sriv.github.com/</uri>
+    </author>
+    <content type="html">{{ post.content | xml_escape }}</content>
+  </entry>
+  {% endfor %}
+</feed>
