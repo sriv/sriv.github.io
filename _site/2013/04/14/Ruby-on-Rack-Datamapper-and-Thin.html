@@ -1,0 +1,174 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+	<head>
+		<meta content="en-au" http-equiv="Content-Language" />
+		<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+		<link href="/rss.xml" type="application/rss+xml" rel="alternate" title="Blog Feed" />
+		<link href="/atom.xml" type="application/atom+xml" rel="alternate" title="Blog Feed" />
+
+		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+		<title>Ruby on Rack, Datamapper & Thin </title>
+		<link rel="stylesheet" type="text/css" href="/css/style.css" />
+		<link rel="shortcut icon" href="/img/favicon.ico" />
+	</head>
+	<body>
+		<div id="container">
+			<div id="side">
+				<div id="hometext"><a href="/" >sriv.github.com</a></div>
+				<div class="section">
+					<ul>
+						<li><a href="/about.html">about</a></li>
+						<li><a href="/rss.xml"><img src="/img/25.png" /> feed</a></li>
+					</ul>
+				</div>
+			</div>
+			<div id="content">
+				<div class="entry-container">
+	<div class='entry'>
+		<h1> Ruby on Rack, Datamapper & Thin  </h1>
+		<span class="postdate">
+			
+		</span>
+		<p>A while back I started a hobby project and wanted to try out a different tech stack, than the regular .net mvc or rails that I'm used to.</p>
+<p>And I was also looking for something very lightweight. I've used Rack as a middleware with rails application before, but not on its own. Although I was aware of Rack being capable of serving HTTP request on its own.</p>
+<p>I had a look at Sinatra as well, which is something I've played around briefly, might get around to writing some Sinatra based app sometime soon.</p>
+<p>Ok, so starting with Rack, I had to achieve the below goals</p>
+<ul>
+<li>Create routes</li>
+<li>Serve static content</li>
+<li>Serve content from database</li>
+<li>Keep the endpoints secure (https).</li>
+</ul>
+<h3>Routing</h3>
+<p>Rack enables one to create a <code>Proc</code> and execute it when invoked, via <code>map</code> method.</p>
+<p>An example of defining a Rack route would be something like</p>
+<pre><code>map &quot;/hello&quot; do
+    run Proc.new {|env| [200, {&quot;Content-Type&quot; =&gt; &quot;text/plain&quot;}, &quot;Hello world!&quot;]}
+end
+</code></pre>
+
+<p>If one were to put this in the <code>config.ru</code> file, fire up the app using <code>rackup</code>, it would expose <code>localhost:&lt;port&gt;/hello</code> as an endpoint that returns &quot;Hello World&quot;.</p>
+<p>So far so good, now how do we tell Rack to do something beyond &quot;Hello World&quot; ?</p>
+<p>I did this by creating a class that would take a request and process it. An example class that looks up a user would be like this </p>
+<pre><code>class UserLookup
+
+    def call(env)
+        load_messages   
+        @req = Rack::Request.new(env)
+        if @req.get?
+            user = User.first(:employee_id =&gt; @req.GET['employee_id'])
+            return [404, {&quot;Content-Type&quot; =&gt; &quot;text/plain&quot;}, [@messages[&quot;unrecognized_user&quot;]]] if user.nil? 
+            [200, {&quot;Content-Type&quot; =&gt; &quot;text/plain&quot;}, [user.to_json(:methods =&gt; [:reserved_books, :full_name, :interests])]]
+        else
+            [405, {&quot;Content-Type&quot; =&gt; &quot;text/plain&quot;}, [@messages[405]]]
+        end
+    end
+
+    private
+
+    def load_messages
+      @messages = YAML::load(File.read(File.expand_path('config/en.yml','.')))
+    end
+
+end
+</code></pre>
+
+<p>In <code>config.ru</code> add a mapping for this lookup like this</p>
+<pre><code>map &quot;/user&quot; do
+    run UserLookup.new
+end
+</code></pre>
+
+<p>Now this exposes another endpoint that would look like</p>
+<pre><code>localhost:&lt;port&gt;/user
+</code></pre>
+
+<p>Now, the <code>UserLookup</code> class needs to be designed to accept parameters. One way of sending the parameters is via querystring in the request. Rack request can lookup querystring using GET object.</p>
+<h3>Nested Routes</h3>
+<p>Nesting routes with Rack is simple enough</p>
+<pre><code>map &quot;/foo&quot; do
+    map &quot;/bar&quot; do
+        run FooBar.new
+    end
+    map &quot;/baz&quot; do
+        run FooBaz.new
+    end
+end
+</code></pre>
+
+<p>This will expose a &quot;/foo/bar&quot; and a &quot;/foo/baz&quot; endpoints. </p>
+<h3>Serving Static Content</h3>
+<p>Ok, so now we have all the requests hitting our application and each Route mapping invokes a Rack process. But like all other web applications, we have static resources to serve as well. In order to serve static content via Rack, it takes a different kind of mapping, like below -</p>
+<pre><code>map &quot;/scripts&quot; do
+    run Rack::Directory.new(File.expand_path(&quot;./scripts&quot;))
+end
+
+map &quot;/css&quot; do
+    run Rack::Directory.new(File.expand_path(&quot;./css&quot;))
+end
+
+map &quot;/img&quot; do
+    run Rack::Directory.new(File.expand_path(&quot;./img&quot;))
+end
+</code></pre>
+
+<p>And that's all it takes to serve all the content for a web application.</p>
+<h3>Setup Thin webserver.</h3>
+<p>Thin is a web server that is designed for higher throughput. More about Thin is available <a href="http://code.macournoyer.com/thin/">here
+</a>. Just adding the <code>thin</code> gem in the <code>GemFile</code> and doing a <code>bundle install</code> was enough to setup Thin for me. By default <code>rackup</code> opens up the application using Webrick. Installing <code>Thin</code> gem launches the application using Thin.</p>
+<h3>Why Thin?</h3>
+<p>There are various selling points for Thin. There is a comparison between the number of concurrent requests Thin can serve versus Mongrel, Webrick etc. So high concurrency is reason good enough.</p>
+<p>My motive was simple - I needed to have my website running under SSL (https), this was because my web application access the webcamera of the user using Webkit's <code>webkitGetUserMedia</code> API, and it is annoying how everytime there is a call to this API, the browser asks for confirmation. Secure sites require confirmation only once, and the browser (Chrome) remembers the action in subsequent requests.</p>
+<p>Thin comes with an option to enable SSL, so why not use it?</p>
+<p>Enabling SSL over Thin is straightforward enough. As a first step I had to generate a self-signed certificate.</p>
+<p>After that all I had to do was start Thin from the same directory as <code>config.ru</code> using these options</p>
+<p>thin start --ssl --ssl-key-file ../cert/server.key --ssl-cert-file ../cert/server.crt</p>
+<p>In absence of Thin, the other way to setup SSL is to have the application behind an <code>nginx</code> proxy and have <code>nginx</code> configured to use SSL.</p>
+<h3>Data access - Datamapper</h3>
+<p>I'll not repeat stuff here, I think Datamapper's website is elaborate enough to highlight &quot;<a href="http://datamapper.org/why.html">Why Datamapper?</a>&quot;</p>
+<p>However, I do want to put down my experiences using Datamapper (beyond regular table mappings). But that is possibly a different post in itself, this one has got long enough. </p>
+<p>One thing I can say is I am in love with Datamapper, especially since, these days, most of my ORM time is consumed by NHibernate!</p>
+
+	</div>
+</div>
+<div id="page-navigation"> 
+	<div class="left">  </div> 
+	<div class="right">  </div> 
+	<div class="clear">&nbsp;</div>
+</div> 
+
+
+
+<div id="disqus_thread"></div>
+<script type="text/javascript">
+    /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+    var disqus_shortname = 'sriv'; // required: replace example with your forum shortname
+
+    /* * * DON'T EDIT BELOW THIS LINE * * */
+    (function() {
+        var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+        dsq.src = 'http://' + disqus_shortname + '.disqus.com/embed.js';
+        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="http://disqus.com" class="dsq-brlink">blog comments powered by <span class="logo-disqus">Disqus</span></a>
+
+			</div>
+
+		</div>
+		<a title="Web Analytics" href="http://getclicky.com/100552509"><img alt="Web Analytics" src="//static.getclicky.com/media/links/badge.gif" border="0" /></a>
+		<script type="text/javascript">
+		var clicky_site_ids = clicky_site_ids || [];
+		clicky_site_ids.push(100552509);
+		(function() {
+		  var s = document.createElement('script');
+		  s.type = 'text/javascript';
+		  s.async = true;
+		  s.src = '//static.getclicky.com/js';
+		  ( document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0] ).appendChild( s );
+		})();
+		</script>
+		<noscript><p><img alt="Clicky" width="1" height="1" src="//in.getclicky.com/100552509ns.gif" /></p></noscript>		
+	</body>
+</html>
