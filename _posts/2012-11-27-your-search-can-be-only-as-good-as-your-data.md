@@ -1,8 +1,6 @@
 --- 
 layout: post
 title: "Your search can be only as good as your data"
-author: "Srikanth Venugopalan"
-comments: true
 ---
 
 Very recently I was involved in a project that required us to implement a search feature. The setup is quite simple, and generic:

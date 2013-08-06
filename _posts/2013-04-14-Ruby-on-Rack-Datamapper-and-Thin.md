@@ -1,8 +1,6 @@
 --- 
 layout: post
 title: "Ruby on Rack, Datamapper & Thin "
-author: "Srikanth Venugopalan"
-comments: true
 ---
 
 A while back I started a hobby project and wanted to try out a different tech stack, than the regular .net mvc or rails that I'm used to.
