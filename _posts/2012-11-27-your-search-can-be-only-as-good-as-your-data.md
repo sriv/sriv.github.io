@@ -2,6 +2,8 @@
 layout: post
 title: "Your search can be only as good as your data"
 comments: true
+tags:
+- search
 ---
 
 Very recently I was involved in a project that required us to implement a search feature. The setup is quite simple, and generic:

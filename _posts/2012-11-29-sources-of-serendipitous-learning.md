@@ -2,6 +2,9 @@
 layout: post
 title: "My sources for serendipitous learning"
 comments: true
+tags:
+- learning
+- meta
 ---
 
 A few days ago, I wrote a [post](/how-open-source-community-helps-me.html) about how open source community help me. I've been thinking about it, and have realized that open source projects are one of my sources of learning what I have learnt. 

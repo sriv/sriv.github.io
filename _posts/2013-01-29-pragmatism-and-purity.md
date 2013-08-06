@@ -2,6 +2,8 @@
 layout: post
 title: "Pragmatism and Purity"
 comments: true
+tags:
+- meta
 ---
 
 One of the lessons I've learnt from experience is that there are good systems, and there are bad systems. But they do the job for their users. The difference between good and bad comes into picture only when the systems fail to adapt or evolve at the same (if not faster pace) than the user's needs.

@@ -2,6 +2,11 @@
 layout: post
 title: "Ruby on Rack, Datamapper and Thin "
 comments: true
+tags:
+- ruby
+- rack
+- datamapper
+- thin
 ---
 
 A while back I started a hobby project and wanted to try out a different tech stack, than the regular .net mvc or rails that I'm used to.
