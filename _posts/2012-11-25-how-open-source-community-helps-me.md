@@ -1,6 +1,7 @@
 --- 
 layout: post
 title: "How open source community helps me"
+comments: true
 ---
 
 There has been a lot of buzz about open-source software lately. Thanks to sites like [github](http://www.github.com), more and more people are looking at open-source software, and thankfully, the contributing community also seems to be growing.
