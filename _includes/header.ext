@@ -1,0 +1,55 @@
+<!doctype html>
+<!--[if lt IE 7]> <html class="no-js lt-ie9 lt-ie8 lt-ie7" lang="en"> <![endif]-->
+<!--[if IE 7]>    <html class="no-js lt-ie9 lt-ie8" lang="en"> <![endif]-->
+<!--[if IE 8]>    <html class="no-js lt-ie9" lang="en"> <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en"> <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <title>{{ page.title }}</title>
+  <meta name="description" content="Srikanth Venugopalan - learnings, rants and thoughts.">
+
+  <meta name="viewport" content="width=device-width">
+  <link rel="stylesheet" href="{{site.url}}/css/style.css">
+  <link href='http://fonts.googleapis.com/css?family=Raleway:400,600,200,800' rel='stylesheet' type='text/css'>
+
+  <script src="/js/libs/modernizr-2.5.3.min.js"></script>
+</head>
+<body>
+  <div class="container-fluid">
+    <div class="row-fluid">
+      <div id="sidebar">
+        <div class="sidebar-nav sidebar-nav-fixed">
+          <div class="info">
+            <p id="avatar"><a href="{{site.url}}"><img alt="Title" src="http://www.gravatar.com/avatar/f882e1ef33bcbefabf8c2f9463fb1f7f.png?s=100"/></a></p>
+            <h3><a href="/">{{site.title}}</a></h3>
+            <p class="description">{{site.description}}</p>
+          </div>
+          <ul id="links">
+            <li{% if page.url == "/index.html" %} class="active"{% endif %}><a href="{{site.url}}">home</a></li>
+            {% if site.twitter %}
+              <li><a id="twitter-link">twitter</a><div class="loading-spinner"></div></li>
+            {% endif %}
+            {% if site.github %}
+              <li><a id="github-link">github</a><div class="loading-spinner"></div></li>
+            {% endif %}
+            {% if site.instagram_id %}
+              <li><a id="instagram-link">instagram</a><div class="loading-spinner"></div></li>
+            {% endif %}
+            {% if site.dribbble %}
+              <li><a id="dribbble-link">dribbble</a><div class="loading-spinner"></div></li>
+            {% endif %}
+            {% if site.lastfm %}
+              <li><a id="lastfm-link">last.fm</a><div class="loading-spinner"></div></li>
+            {% endif %}
+            {% if site.soundcloud %}
+              <li><a id="soundcloud-link">soundcloud</a><div class="loading-spinner"></div></li>
+            {% endif %}
+            <li>
+              <a href="{{site.url}}/contact/" class="static-page" data-page-name="contact">contact</a>
+              <div class="loading-spinner"></div>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div id="content">

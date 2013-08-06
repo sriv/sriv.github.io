@@ -1,0 +1,16 @@
+{% include header.ext %}
+
+<div id="post-wrapper">
+  <ol id="posts">
+    <li class="post nav">
+      <ul class="post-archive">
+        {% for post in site.posts %}
+          <li><a href="{{site.url}}{{ post.url }}">{{ post.title }}</a> <span>{{ post.date | date_to_string }}</span></li>
+        {% endfor %}
+      </ul>
+    </li>
+  </ol>
+</div>
+
+
+{% include footer.ext %}

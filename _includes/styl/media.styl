@@ -1,0 +1,40 @@
+@media (min-width: 767px)
+
+  #sidebar
+    width 250px
+    position fixed
+
+    .sidebar-nav
+
+      #avatar
+        float none
+        margin 10px 0
+
+  .sidebar-nav-fixed
+    position fixed
+    width 250px
+
+  #content
+    ol#posts
+      li.post
+        &.nav
+          padding-top 100px
+
+  #content #post-wrapper
+    margin-left 275px
+
+  .modal
+    position fixed
+    top 0
+    left -250px
+    background #fff
+    margin 0
+    border-radius 0
+    height 100%
+    overflow auto
+    width 400px
+    border-right 1px solid $text-color
+    transition(left 0.3s linear)
+
+    &.in
+      left 250px

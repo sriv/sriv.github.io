@@ -6,7 +6,7 @@ layout: nil
 <channel>
     <title>sriv.github.com</title>
     <link>http://sriv.github.com/</link>
-    <atom:link href="http://sriv.github.com/rss.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="http://{{site.url}}/rss.xml" rel="self" type="application/rss+xml" />
     <description></description>
     <language>en-au</language>
     <pubDate>{{ site.time | date: "%a, %d %b %Y %H:%M:%S %z" }}</pubDate>
@@ -18,7 +18,7 @@ layout: nil
       <link>http://sriv.github.com/{{ post.url }}</link>
       <pubDate>{{ post.date | date: "%a, %d %b %Y %H:%M:%S %z" }}</pubDate>
       <author>{{ post.author }}</author>
-      <guid>http://sriv.github.com/{{ post.url }}</guid>
+      <guid>http://{{site.url}}/{{ post.url }}</guid>
       <description>{{ post.content | xml_escape }}</description>
     </item>
     {% endfor %}

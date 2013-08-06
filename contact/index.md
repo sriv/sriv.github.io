@@ -1,7 +1,6 @@
 ---
 layout: post
-title: About
-comments: false
+title: Contact
 ---
 
 My name is Srikanth, I am a programmer/consultant based out of Chennai, India. 

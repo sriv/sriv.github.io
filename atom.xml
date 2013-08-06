@@ -4,8 +4,8 @@ layout: nil
 <?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <title>Feed Name</title>
-  <link href="http://sriv.github.com/"/>
-  <link type="application/atom+xml" rel="self" href="http://sriv.github.com/atom.xml"/>
+  <link href="http://{{site.url}}"/>
+  <link type="application/atom+xml" rel="self" href="http://{{site.url}}/atom.xml"/>
   <updated>{{ site.time | date_to_xmlschema }}</updated>
   <id>http://sriv.github.com/</id>
   <author>
@@ -16,12 +16,12 @@ layout: nil
   {% for post in site.posts %}
   <entry>
     <id>http://sriv.github.com/{{ post.url }}</id>
-    <link type="text/html" rel="alternate" href="http://sriv.github.com/{{ post.url }}"/>
+    <link type="text/html" rel="alternate" href="http://{{site.url}}/{{ post.url }}"/>
     <title>{{ post.title | xml_escape }}</title>
     <updated>{{ post.date | date_to_xmlschema }}</updated>
     <author>
       <name>{{ post.author }}</name>
-      <uri>http://sriv.github.com/</uri>
+      <uri>http://{{site.url}}/</uri>
     </author>
     <content type="html">{{ post.content | xml_escape }}</content>
   </entry>

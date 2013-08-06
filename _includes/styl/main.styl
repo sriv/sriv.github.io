@@ -1,0 +1,178 @@
+@import 'nib'
+
+$highlight_color = #01A9DB
+
+body
+  font-size 15px
+  line-height 24px
+  color #333333
+  background #efefef
+  padding 0
+
+h1, h2, h3, h4
+  font-family 'Raleway', 'Helvetica Neue', Helvetica, Arial, sans-serif
+  color #111
+
+a
+  color #404040
+  cursor pointer
+
+  &:hover
+    color $highlight_color
+    text-decoration none
+
+p
+  line-height 25px
+  margin-top 20px
+  margin-bottom 20px
+
+.container-fluid
+  padding 0
+
+.sidebar-nav-fixed
+  height 100%
+  position static
+  width auto
+
+#sidebar
+  min-height 100%
+  z-index 1200
+  background #efefef
+
+  .sidebar-nav
+    border-right 1px solid #c2c2c2
+
+    .info
+      margin-top 20px
+      padding 0 10px 0 30px
+      text-shadow 0 1px 1px #f9f9f9
+
+      h3
+        margin-bottom 0
+
+        a
+          color #404040
+
+        a:hover
+          color $highlight_color
+          text-decoration none
+
+      p.description
+        color #606060
+        font-family 'Amaranth', 'Helvetica Neue', Helvetica,Arial, sans-serif
+        font-weight 300
+        font-size 14px
+        font-style italic
+        margin-top 0
+
+    #avatar
+      float left
+      margin 0 20px
+
+      img
+        width 100px
+        height 100px
+        border-radius(50px)
+
+    ul#links
+      margin 30px 0 0 0
+      list-style none
+      border-top 1px solid #c2c2c2
+      vertical-align bottom
+
+      li
+        border-bottom 1px solid #c2c2c2
+        position relative
+
+        .loading-spinner
+          display none
+          position absolute
+          top 24px
+          right 26px
+
+        &.loading
+          .loading-spinner
+            display block
+
+        &.active a
+          border-right 6px solid $highlight_color
+
+        a
+          position relative
+          padding 15px 30px
+          color #404040
+          display block
+          font-weight 500
+          text-shadow 0 1px 1px #f9f9f9
+
+          &:hover
+            text-decoration none
+            color #fff
+            text-shadow none
+            background $highlight_color
+
+#content
+  margin-left 0
+
+  ol#posts
+    margin 0
+    list-style none
+
+    li.post
+      padding 10px 35px
+      margin-bottom 10px
+      border-bottom 1px solid #DDDED7
+
+      h3
+        span
+          color #aaa
+          font-size 12px
+          font-family 'Helvetica Neue', Helvetica,Arial, sans-serif
+          font-weight normal
+
+      &.nav
+        padding-top 10px
+        border 0
+
+    li
+      ul.misc
+        list-style none
+        margin 0
+
+        li
+          border none
+          float left
+          padding 0
+          margin-right 10px
+
+  #post-wrapper
+    width auto
+    margin-left 0
+    padding 10px
+
+    .pagination
+      margin-left 20px
+
+    .footer-link
+      padding-left 30px
+
+
+ul.post-archive
+  list-style none
+  margin 0
+
+  li
+    padding 10px 0
+
+    a
+      font-family 'Raleway', 'Helvetica Neue', Helvetica, Arial, sans-serif
+      color #111
+      font-size 16px
+      font-weight 600
+
+      &:hover
+        color $highlight_color
+
+    span
+      color #aaa
+      font-size 12px
