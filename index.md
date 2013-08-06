@@ -58,7 +58,7 @@ title : sriv.github.io
         query += 'url' + i + '=' + encodeURIComponent(links[i].href) + '&';
     }
     }
-    document.write('<script charset="utf-8" type="text/javascript" src="http://disqus.com/forums/DISQUS_NAME/get_num_replies.js' + query + '"></' + 'script>');
+    document.write('<script charset="utf-8" type="text/javascript" src="http://disqus.com/forums/sriv/get_num_replies.js' + query + '"></' + 'script>');
 })();
 //]]>
 </script>
