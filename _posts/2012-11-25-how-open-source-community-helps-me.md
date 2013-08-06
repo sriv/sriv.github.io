@@ -13,7 +13,7 @@ Events like [FOSS](http://www.foss.in) helps promote awareness of open source so
 
 Up until a few years ago, I belonged to the above mentioned category of developers. I have had my fair share of projects that I am not proud of. It is not so much the nature of work that I am complaining, but the environment. I have worked for clients from various parts of the world and each one of them had different kind of restrictions. 'Trust' was almost non-existent. In fact, one of the clients denied me internet access.
 
-In the above mentioned eco-system, I did manage to learn some stuff that kept my interests. Nevertheless, if I was to assess myself as a programmer today, I will say that I am still not half as good as I'd like to be. My list of topics of interest is growing by the day (and I hope that is a good thing!).
+In the above mentioned eco-system, I did manage to learn some stuff that kept my interests. Nevertheless, if I were to assess myself as a programmer today, I will say that I am still not half as good as I'd like to be. My list of topics of interest is growing by the day (and I hope that is a good thing!).
 
 So, if the infrastructure was not there, how was I to know whether I was writing code the right way? More importantly, how would I know if I am wasting my time re-inventing the wheel? Most importantly, how would I learn from the experts?
 
@@ -25,7 +25,7 @@ Open source community (and by that I mean various projects/people) have shown me
 
 ###An example
 
-Take this blog, it is powered by [pretzel](https://github.com/code52/pretzel). I have been encouraged/nagged by various colleagues/friends to start a blog, but I have managed to procrastinate so far. When I finally got around to getting started, I wanted to have a light platform.
+Take this blog, it uses [pretzel](https://github.com/code52/pretzel). I have been encouraged/nagged by various colleagues/friends to start a blog, but I have managed to procrastinate so far. When I finally got around to getting started, I wanted to have a light platform.
 
 Github pages/Jekyll was a choice, but I wanted something with a .NET flavour. I found [pretzel](https://github.com/code52/pretzel), and immediately fell in love with it.
 
