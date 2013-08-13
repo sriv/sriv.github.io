@@ -1,0 +1,120 @@
+<!doctype html>
+<!--[if lt IE 7]> <html class="no-js lt-ie9 lt-ie8 lt-ie7" lang="en"> <![endif]-->
+<!--[if IE 7]>    <html class="no-js lt-ie9 lt-ie8" lang="en"> <![endif]-->
+<!--[if IE 8]>    <html class="no-js lt-ie9" lang="en"> <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en"> <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <title>Your search can be only as good as your data</title>
+  <meta name="description" content="Srikanth Venugopalan - learnings, rants and thoughts.">
+
+  <meta name="viewport" content="width=device-width">
+  <link rel="stylesheet" href="http://sriv.github.io/css/style.css">
+  <link href='http://fonts.googleapis.com/css?family=Raleway:400,600,200,800' rel='stylesheet' type='text/css'>
+
+  <script src="/js/libs/modernizr-2.5.3.min.js"></script>
+</head>
+<body>
+  <div class="container-fluid">
+    <div class="row-fluid">
+      <div id="sidebar">
+        <div class="sidebar-nav sidebar-nav-fixed">
+          <div class="info">
+            <p id="avatar"><a href="http://sriv.github.io"><img alt="Title" src="http://www.gravatar.com/avatar/f882e1ef33bcbefabf8c2f9463fb1f7f.png?s=100"/></a></p>
+            <h3><a href="/">Srikanth Venugopalan</a></h3>
+            <p class="description">writes code, loves hacking.<br />From Chennai, India</p>
+          </div>
+          <ul id="links">
+            <li><a href="http://sriv.github.io">home</a></li>
+            
+              <li><a id="twitter-link">twitter</a><div class="loading-spinner"></div></li>
+            
+            
+              <li><a id="github-link">github</a><div class="loading-spinner"></div></li>
+            
+            
+            
+            
+            
+            <li>
+              <a href="http://sriv.github.io/contact/" class="static-page" data-page-name="contact">contact</a>
+              <div class="loading-spinner"></div>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div id="content">
+
+
+<div id="post-wrapper">
+  <ol id="posts">
+    <li class="post">
+      <h3><a href="#">Your search can be only as good as your data</a>
+      <span><div class="meta_wrapper"><time datetime="2012-11-27">November 27, 2012</time><ul class="tag_list_in_post"><li class="inline tag_list_item"><a class="tag_list_link" href="/tag/search">search</a></li></ul></div></span></h3>
+      <p>Very recently I was involved in a project that required us to implement a search feature. The setup is quite simple, and generic:</p>
+
+<p>1) An Administration Application - Responsible for authoring/creating products and its attributes.</p>
+
+<p>2) A catalogue application that also powers the public facing website, which has details about products.</p>
+
+<p>In this project, the product managers have been consolidating Product details in their respective areas for a while (a few years). We were tasked with retrofitting the search engine to use the data.</p>
+
+<p>Seems simple enough ? Here are few points that I learnt from this task.</p>
+
+<h3 id='data_issues_can_exist_at_all_level'>Data issues can exist at all level</h3>
+
+<h3 id='storagedesign'><em>Storage/Design</em></h3>
+
+<p>Bad data isn&#8217;t just about <strong><em>wrong data types</em></strong>. Number stored as string, data-time woes combined with time zone complexities can be a data warehouse nightmare. Often, we had to add ad-hoc conditions to the data extraction logic.</p>
+
+<p><strong><em>Data integrity</em></strong> is another case, where legacy databases which have grown in an ad-hoc fashion, often as a result of silo-ed application development. This causes cross database lookup, often not protected by foreign keys and such.</p>
+
+<p>With such atomic databases being out of sync, data is duplicated and not in it&#8217;s entirety. So <strong><em>de-duplication</em></strong> of data is one of the overheads.</p>
+
+<h3 id='human_error'><em>Human Error</em></h3>
+
+<p>Most data collection mechanisms involve manual entry. <strong><em>Mis-spelling, mis-tagging, mis-classification etc. can have catastrophic effect</em></strong> in the long run. The effect is magnified when dependencies on such data get added. Not only the entity itself is polluted, but it ends up affecting the entire chain.</p>
+
+<p>Humans can be easily misguided, and lack of training can only make it worse. In some cases, excessive tagging is perceived as something that would boost up the product. Product managers have been religiously doing this. What they do not realize is <strong><em>too much data is noise</em></strong>, it is pollution.</p>
+
+<h3 id='conclusion'>Conclusion</h3>
+
+<p>Bad data can be caused due to bad design or poor data capture mechanism. Sometimes, bad data can be curated by manual tasks. Some other times, there are patterns of bad data, and some automated tasks can help clean it up. However, there is a good chance that the data is not cleaned up at all.</p>
+
+<p>No matter what tool/technology one looks at (be it Search tools like SOLR, or other data-warehouse tools) , the bottleneck in getting the right Search (or any analytics) is going to be data quality. These tools are mature enough to be close to perfect, given the perfect dataset. So, whenever there is a mismatch in expected v/s actual behaviour, I would first look at the data. Most problems/bugs that I have faced implementing a Search is because of bad data.</p>
+    </li>
+  </ol>
+  <div class="pagination">
+    <ul>
+      <li><a href="http://sriv.github.io">&#171; Back Home</a></li>
+    </ul>
+  </div>
+</div>
+
+
+<div id="disqus_thread"></div>
+<script type="text/javascript">
+    /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+    var disqus_shortname = 'sriv'; // required: replace example with your forum shortname
+
+    /* * * DON'T EDIT BELOW THIS LINE * * */
+    (function() {
+        var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+        dsq.src = 'http://' + disqus_shortname + '.disqus.com/embed.js';
+        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="http://disqus.com" class="dsq-brlink">blog comments powered by <span class="logo-disqus">Disqus</span></a>
+
+
+      </div>
+    </div>
+  </div>
+
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+  <script>window.jQuery || document.write('<script src="http://sriv.github.io/js/libs/jquery-1.7.1.min.js"><\/script>')</script>
+  <script src="http://sriv.github.io/js/script.js"></script>
+</body>
+</html>

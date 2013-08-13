@@ -1,0 +1,406 @@
+<?xml version="1.0"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+    <title>sriv.github.com</title>
+    <link>http://sriv.github.com/</link>
+    <atom:link href="http://http://sriv.github.io/rss.xml" rel="self" type="application/rss+xml" />
+    <description></description>
+    <language>en-au</language>
+    <pubDate>Tue, 13 Aug 2013 08:39:43 +0530</pubDate>
+    <lastBuildDate>Tue, 13 Aug 2013 08:39:43 +0530</lastBuildDate>
+
+    
+    <item>
+      <title>Ruby on Rack, Datamapper and Thin </title>
+      <link>http://sriv.github.com//2013/04/14/Ruby-on-Rack-Datamapper-and-Thin/</link>
+      <pubDate>Sun, 14 Apr 2013 00:00:00 +0530</pubDate>
+      <author></author>
+      <guid>http://http://sriv.github.io//2013/04/14/Ruby-on-Rack-Datamapper-and-Thin/</guid>
+      <description>&lt;p&gt;A while back I started a hobby project and wanted to try out a different tech stack, than the regular .net mvc or rails that I&amp;#8217;m used to.&lt;/p&gt;
+
+&lt;p&gt;And I was also looking for something very lightweight. I&amp;#8217;ve used Rack as a middleware with rails application before, but not on its own. Although I was aware of Rack being capable of serving HTTP request on its own.&lt;/p&gt;
+
+&lt;p&gt;I had a look at Sinatra as well, which is something I&amp;#8217;ve played around briefly, might get around to writing some Sinatra based app sometime soon.&lt;/p&gt;
+
+&lt;p&gt;Ok, so starting with Rack, I had to achieve the below goals&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Create routes&lt;/li&gt;
+
+&lt;li&gt;Serve static content&lt;/li&gt;
+
+&lt;li&gt;Serve content from database&lt;/li&gt;
+
+&lt;li&gt;Keep the endpoints secure (https).&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#39;routing&#39;&gt;Routing&lt;/h3&gt;
+
+&lt;p&gt;Rack enables one to create a &lt;code&gt;Proc&lt;/code&gt; and execute it when invoked, via &lt;code&gt;map&lt;/code&gt; method.&lt;/p&gt;
+
+&lt;p&gt;An example of defining a Rack route would be something like&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;map &amp;quot;/hello&amp;quot; do
+    run Proc.new {|env| [200, {&amp;quot;Content-Type&amp;quot; =&amp;gt; &amp;quot;text/plain&amp;quot;}, &amp;quot;Hello world!&amp;quot;]}
+end&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;If one were to put this in the &lt;code&gt;config.ru&lt;/code&gt; file, fire up the app using &lt;code&gt;rackup&lt;/code&gt;, it would expose &lt;code&gt;localhost:&amp;lt;port&amp;gt;/hello&lt;/code&gt; as an endpoint that returns &amp;#8220;Hello World&amp;#8221;.&lt;/p&gt;
+
+&lt;p&gt;So far so good, now how do we tell Rack to do something beyond &amp;#8220;Hello World&amp;#8221; ?&lt;/p&gt;
+
+&lt;p&gt;I did this by creating a class that would take a request and process it. An example class that looks up a user would be like this&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;class UserLookup
+
+    def call(env)
+	    load_messages	
+	    @req = Rack::Request.new(env)
+	    if @req.get?
+		    user = User.first(:employee_id =&amp;gt; @req.GET[&amp;#39;employee_id&amp;#39;])
+		    return [404, {&amp;quot;Content-Type&amp;quot; =&amp;gt; &amp;quot;text/plain&amp;quot;}, [@messages[&amp;quot;unrecognized_user&amp;quot;]]] if user.nil? 
+		    [200, {&amp;quot;Content-Type&amp;quot; =&amp;gt; &amp;quot;text/plain&amp;quot;}, [user.to_json(:methods =&amp;gt; [:reserved_books, :full_name, :interests])]]
+	    else
+		    [405, {&amp;quot;Content-Type&amp;quot; =&amp;gt; &amp;quot;text/plain&amp;quot;}, [@messages[405]]]
+	    end
+    end
+
+    private
+
+    def load_messages
+      @messages = YAML::load(File.read(File.expand_path(&amp;#39;config/en.yml&amp;#39;,&amp;#39;.&amp;#39;)))
+    end
+
+end&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;In &lt;code&gt;config.ru&lt;/code&gt; add a mapping for this lookup like this&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;map &amp;quot;/user&amp;quot; do
+    run UserLookup.new
+end&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now this exposes another endpoint that would look like&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;localhost:&amp;lt;port&amp;gt;/user&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now, the &lt;code&gt;UserLookup&lt;/code&gt; class needs to be designed to accept parameters. One way of sending the parameters is via querystring in the request. Rack request can lookup querystring using GET object.&lt;/p&gt;
+
+&lt;h3 id=&#39;nested_routes&#39;&gt;Nested Routes&lt;/h3&gt;
+
+&lt;p&gt;Nesting routes with Rack is simple enough&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;map &amp;quot;/foo&amp;quot; do
+	map &amp;quot;/bar&amp;quot; do
+		run FooBar.new
+	end
+	map &amp;quot;/baz&amp;quot; do
+		run FooBaz.new
+	end
+end&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This will expose a &amp;#8220;/foo/bar&amp;#8221; and a &amp;#8220;/foo/baz&amp;#8221; endpoints.&lt;/p&gt;
+
+&lt;h3 id=&#39;serving_static_content&#39;&gt;Serving Static Content&lt;/h3&gt;
+
+&lt;p&gt;Ok, so now we have all the requests hitting our application and each Route mapping invokes a Rack process. But like all other web applications, we have static resources to serve as well. In order to serve static content via Rack, it takes a different kind of mapping, like below -&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;map &amp;quot;/scripts&amp;quot; do
+	run Rack::Directory.new(File.expand_path(&amp;quot;./scripts&amp;quot;))
+end
+
+map &amp;quot;/css&amp;quot; do
+	run Rack::Directory.new(File.expand_path(&amp;quot;./css&amp;quot;))
+end
+
+map &amp;quot;/img&amp;quot; do
+	run Rack::Directory.new(File.expand_path(&amp;quot;./img&amp;quot;))
+end&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;And that&amp;#8217;s all it takes to serve all the content for a web application.&lt;/p&gt;
+
+&lt;h3 id=&#39;setup_thin_webserver&#39;&gt;Setup Thin webserver.&lt;/h3&gt;
+
+&lt;p&gt;Thin is a web server that is designed for higher throughput. More about Thin is available &lt;a href=&#39;http://code.macournoyer.com/thin/&#39;&gt;here&lt;/a&gt;. Just adding the &lt;code&gt;thin&lt;/code&gt; gem in the &lt;code&gt;GemFile&lt;/code&gt; and doing a &lt;code&gt;bundle install&lt;/code&gt; was enough to setup Thin for me. By default &lt;code&gt;rackup&lt;/code&gt; opens up the application using Webrick. Installing &lt;code&gt;Thin&lt;/code&gt; gem launches the application using Thin.&lt;/p&gt;
+
+&lt;h3 id=&#39;why_thin&#39;&gt;Why Thin?&lt;/h3&gt;
+
+&lt;p&gt;There are various selling points for Thin. There is a comparison between the number of concurrent requests Thin can serve versus Mongrel, Webrick etc. So high concurrency is reason good enough.&lt;/p&gt;
+
+&lt;p&gt;My motive was simple - I needed to have my website running under SSL (https), this was because my web application access the webcamera of the user using Webkit&amp;#8217;s &lt;code&gt;webkitGetUserMedia&lt;/code&gt; API, and it is annoying how everytime there is a call to this API, the browser asks for confirmation. Secure sites require confirmation only once, and the browser (Chrome) remembers the action in subsequent requests.&lt;/p&gt;
+
+&lt;p&gt;Thin comes with an option to enable SSL, so why not use it?&lt;/p&gt;
+
+&lt;p&gt;Enabling SSL over Thin is straightforward enough. As a first step I had to generate a self-signed certificate.&lt;/p&gt;
+
+&lt;p&gt;After that all I had to do was start Thin from the same directory as &lt;code&gt;config.ru&lt;/code&gt; using these options&lt;/p&gt;
+
+&lt;p&gt;thin start &amp;#8211;ssl &amp;#8211;ssl-key-file ../cert/server.key &amp;#8211;ssl-cert-file ../cert/server.crt&lt;/p&gt;
+
+&lt;p&gt;In absence of Thin, the other way to setup SSL is to have the application behind an &lt;code&gt;nginx&lt;/code&gt; proxy and have &lt;code&gt;nginx&lt;/code&gt; configured to use SSL.&lt;/p&gt;
+
+&lt;h3 id=&#39;data_access__datamapper&#39;&gt;Data access - Datamapper&lt;/h3&gt;
+
+&lt;p&gt;I&amp;#8217;ll not repeat stuff here, I think Datamapper&amp;#8217;s website is elaborate enough to highlight &amp;#8221;&lt;a href=&#39;http://datamapper.org/why.html&#39;&gt;Why Datamapper?&lt;/a&gt;&amp;#8221;&lt;/p&gt;
+
+&lt;p&gt;However, I do want to put down my experiences using Datamapper (beyond regular table mappings). But that is possibly a different post in itself, this one has got long enough.&lt;/p&gt;
+
+&lt;p&gt;One thing I can say is I am in love with Datamapper, especially since, these days, most of my ORM time is consumed by NHibernate!&lt;/p&gt;</description>
+    </item>
+    
+    <item>
+      <title>Async Controller testing gotchas with NUnit</title>
+      <link>http://sriv.github.com//2013/03/27/Async+testing+gotchas+with+NUnit/</link>
+      <pubDate>Wed, 27 Mar 2013 00:00:00 +0530</pubDate>
+      <author></author>
+      <guid>http://http://sriv.github.io//2013/03/27/Async+testing+gotchas+with+NUnit/</guid>
+      <description>&lt;p&gt;NUnit released version 2.6.2 with support for testing asynchronous methods. I decided to give it a shot.&lt;/p&gt;
+
+&lt;p&gt;And my trial was to write some tests for an async WebApi controller. Lets say we have a controller called &lt;code&gt;UserController&lt;/code&gt;. And I want to add an action called &lt;code&gt;Get&lt;/code&gt; which looks like this -&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;public Task&amp;lt;User&amp;gt; Get(string userId)
+{
+        if (string.IsNullOrEmpty(userId))
+        {
+            throw new ArgumentException(&amp;quot;No username specified.&amp;quot;);
+        }
+
+        return Task.Factory.StartNew(
+            () =&amp;gt;
+                {
+                    var user = userRepository.GetById(userId);
+                    if (user != null)
+                    {
+                        return user;
+                    }
+
+                    throw new HttpResponseException(Request.CreateErrorResponse(
+                    	HttpStatusCode.NotFound, string.Format(&amp;quot;{0} - username does not exist&amp;quot;, userId)));
+                });
+}&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Great, so we have an action that is asynchronous. Now there are two kinds of tests that we would have to write, one for the happy path, and another to ensure that the exception is thrown with the right properties set.&lt;/p&gt;
+
+&lt;p&gt;Here&amp;#8217;s how I ended up writing the happy path test -&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[Test]
+public async void ShouldGetUserDetails()
+{
+    var mockUserRepository = new Mock&amp;lt;IUserRepository&amp;gt;();
+    mockUserRepository.Setup(x =&amp;gt; x.GetByUserName(It.IsAny&amp;lt;string&amp;gt;())).Returns(new User { UserName = &amp;quot;foo&amp;quot; });
+    var userController = new UserController(mockUserRepository.Object);
+
+    var user = await userController.Get(&amp;quot;foo&amp;quot;);
+
+    Assert.IsNotNull(user);
+    Assert.That(user.UserName, Is.EqualTo(&amp;quot;foo&amp;quot;));
+}&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;All good! The test passes. The only difference here is the use of &lt;code&gt;async&lt;/code&gt; and &lt;code&gt;await&lt;/code&gt; keywords in the test.&lt;/p&gt;
+
+&lt;p&gt;Now comes the fun part, I tried writing tests to assert on the exception part. It took some effort and &lt;a href=&#39;http://stackoverflow.com/questions/15634542/nunit-async-test-exception-assertion&#39;&gt;guidance on StackOverflow&lt;/a&gt; to figure out a way. The question has some examples of tests that I expected to work, but didn&amp;#8217;t.&lt;/p&gt;
+
+&lt;p&gt;The question also lists out various scenarios where my attempts to write a test to assert the exception thrown wasn&amp;#8217;t working as expected. There are explanations in the accepted answer.&lt;/p&gt;
+
+&lt;p&gt;Following the hint from the answer, I ended up writing a helper method that will help assert the exception thrown, along with specific properties to verify. Here is how I did it -&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;public static class AssertEx
+{
+    public static async Task ThrowsAsync&amp;lt;TException&amp;gt;(Func&amp;lt;Task&amp;gt; func) where TException : class
+    {
+        await ThrowsAsync&amp;lt;TException&amp;gt;(func, exception =&amp;gt; { });
+    } 
+
+    public static async Task ThrowsAsync&amp;lt;TException&amp;gt;(Func&amp;lt;Task&amp;gt; func, Action&amp;lt;TException&amp;gt; action) where TException : class
+    {
+        var exception = default(TException);
+        var expected = typeof(TException);
+        Type actual = null;
+        try
+        {
+            await func();
+        }
+        catch (Exception e)
+        {
+            exception = e as TException;
+            actual = e.GetType();
+        }
+
+        Assert.AreEqual(expected, actual);
+        action(exception);
+    }
+}&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;And this is how I use it&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[Test]
+public async void ShouldThrow404WhenNotFound()
+{
+    var mockUserRepository = new Mock&amp;lt;IUserRepository&amp;gt;();
+    mockUserRepository.Setup(x =&amp;gt; x.GetByUserName(It.IsAny&amp;lt;string&amp;gt;())).Returns(default(User));
+    var userController = new UserController(mockUserRepository.Object) { Request = new HttpRequestMessage() };
+
+    Action&amp;lt;HttpResponseException&amp;gt; asserts = exception =&amp;gt; Assert.That(exception.Response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    await AssertEx.ThrowsAsync(() =&amp;gt; userController.Get(&amp;quot;foo&amp;quot;), asserts);
+}&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Note that the asserts are now wrapped into an action and passed to &lt;code&gt;AssertEx.ThrowsAsync&lt;/code&gt;.&lt;/p&gt;</description>
+    </item>
+    
+    <item>
+      <title>Pragmatism and Purity</title>
+      <link>http://sriv.github.com//2013/01/29/pragmatism-and-purity/</link>
+      <pubDate>Tue, 29 Jan 2013 00:00:00 +0530</pubDate>
+      <author></author>
+      <guid>http://http://sriv.github.io//2013/01/29/pragmatism-and-purity/</guid>
+      <description>&lt;p&gt;One of the lessons I&amp;#8217;ve learnt from experience is that there are good systems, and there are bad systems. But they do the job for their users. The difference between good and bad comes into picture only when the systems fail to adapt or evolve at the same (if not faster pace) than the user&amp;#8217;s needs.&lt;/p&gt;
+
+&lt;p&gt;I am motivated to write this post by some of the messages exchanged between me and another user at &lt;a href=&#39;http://stackoverflow.com/questions/14374075/timeout-connecting-to-sql-server-express-2012#comment20060455_14374075&#39;&gt;StackOverflow&lt;/a&gt;. The question admits inefficiencies in the system, and seeks a way to work within the limitations. Personal abuses aside, there is one school of thought that mandates drastic changes to fix the root cause.&lt;/p&gt;
+
+&lt;p&gt;In reality, very few root causes are easily fixable. If they were, I&amp;#8217;d expect them to be fixed already and all conversations around them would not be happening.&lt;/p&gt;
+
+&lt;p&gt;I&amp;#8217;ve been involved in multiple transformation projects, where the challenge is to upgrade the system landscape without the users&amp;#8217; lives being disrupted. Martin Fowler wrote about &lt;a href=&#39;http://martinfowler.com/bliki/StranglerApplication.html&#39;&gt;Strangulation Pattern&lt;/a&gt;, where he gives out some points on how this could help in re-writing legacy applications. There is a discussion on &lt;a href=&#39;http://stackoverflow.com/questions/1118804/application-strangler-pattern-experiences-thoughts&#39;&gt;StackOverflow&lt;/a&gt; which has some good insights on the challenges and approach that can be taken to phase out an application.&lt;/p&gt;
+
+&lt;p&gt;On the practical front, there are various types of challenges, and not all of them are technical. But this is a bigger topic, and possibly worth another writeup.&lt;/p&gt;
+
+&lt;h3 id=&#39;some_observations&#39;&gt;Some Observations&lt;/h3&gt;
+
+&lt;ul&gt;
+&lt;li&gt;There is no perfect system. No matter how much you optimize, there is always going to be a few areas to improve upon. The main reason is Software development projects work towards a moving target - changing business.&lt;/li&gt;
+
+&lt;li&gt;A purist is someone who is tempted to do everything by the book, to write the perfect peace of software. A lot of this is driven by the personal drive to write the best piece of code. A pragmatic programmer, on the other hand, is someone who can weigh both sides and decide on a balance.&lt;/li&gt;
+
+&lt;li&gt;No one has infinite time or resource. So there is always going to be someone who draws the line on how perfect the software needs to be. Worse still, once a project is marked as complete, only a subset of the time/resource spent earlier is spent on maintaining it. Hence, there will be someone taking a call to do features or technical maintenance, and in most case, maintenance is driven by business needs.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#39;in_summary&#39;&gt;In Summary&lt;/h3&gt;
+
+&lt;p&gt;While purism is good, and purists have a place to criticize (constructively, of course) projects, almost all of the ones I&amp;#8217;ve come across lack something more important (at least in my mind) - empathy. A little pragmatism goes a long way in achieving the goals, but not at the cost of technical compromise. There are often decisions made, shortcuts taken which will make a purist cry. But sometimes, situations demand it. The fact that people are crying out for help indicates the urgency involved. However, part of being pragmatic also means - Track the system&amp;#8217;s technical debt. Close the debt as soon as possible, else there is a heavy price to pay later.&lt;/p&gt;</description>
+    </item>
+    
+    <item>
+      <title>My sources for serendipitous learning</title>
+      <link>http://sriv.github.com//2012/11/29/sources-of-serendipitous-learning/</link>
+      <pubDate>Thu, 29 Nov 2012 00:00:00 +0530</pubDate>
+      <author></author>
+      <guid>http://http://sriv.github.io//2012/11/29/sources-of-serendipitous-learning/</guid>
+      <description>&lt;p&gt;A few days ago, I wrote a &lt;a href=&#39;/how-open-source-community-helps-me.html&#39;&gt;post&lt;/a&gt; about how open source community help me. I&amp;#8217;ve been thinking about it, and have realized that open source projects are one of my sources of learning what I have learnt.&lt;/p&gt;
+
+&lt;p&gt;In this post, I will try to put my thoughts together on what else has helped me.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;disclaimer&lt;/em&gt; - It&amp;#8217;s probably worth mentioning here that I like to keep discovering things I do not know about and spend some time getting familiar with it. Quite a few topics do not maintain my interest level, a handful do. The sources, methods mentioned here are my way of discovering and learning, it may not be for everyone.&lt;/p&gt;
+
+&lt;h3 id=&#39;at_work&#39;&gt;&lt;em&gt;At work&lt;/em&gt;&lt;/h3&gt;
+
+&lt;p&gt;&lt;em&gt;Pair Programming&lt;/em&gt; - Pairing helps me at various levels. Sometimes, we end up talking about fundamentals of design, and some other times, we debate on what is a good name for a variable. What do I learn by this chit chat? - One more way of doing the same thing - Another example of what won&amp;#8217;t work, before it actually doesn&amp;#8217;t Pair programming isn&amp;#8217;t just two people sitting together in front of a large screen. I have paired with folks who do their homework, and the next morning we share notes. It is twice the reading/research I can do in a night.&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;Community (debates/experiences)&lt;/em&gt; - A community is as strong as the interaction. In my organization, the programmer community is very active, on a given day we discuss close to 10 topics actively.&lt;/p&gt;
+
+&lt;h3 id=&#39;books&#39;&gt;&lt;em&gt;Books&lt;/em&gt;&lt;/h3&gt;
+
+&lt;p&gt;This is quite obvious. Right from the school days, books have been a very reliable source of knowledge. However, in school/college, we are fortunate enough to be prescribed a list of books that we should read. In professional world, we are always hunting for a good book on a topic. It becomes a discovery, when we find a book or a chapter that is brilliant.&lt;/p&gt;
+
+&lt;p&gt;Stephen Hawking&amp;#8217;s &lt;a href=&#39;http://www.hawking.org.uk/a-brief-history-of-time.html&#39;&gt;A brief history of time&lt;/a&gt; is one of the books that I answered a very basic question during my school days. Heisenberg&amp;#8217;s Uncertainty Principle is one of popular principles in physics. I had read various textbooks defining what it is. But it was Hawking&amp;#8217;s two and a half page description that actually made sense to me (if you haven&amp;#8217;t already, I would recommend reading chapter 4 of this book.&lt;/p&gt;
+
+&lt;p&gt;Now, I wasn&amp;#8217;t reading this book because I wanted to learn Heisenberg&amp;#8217;s principle. In fact, I read this book after I had completed my exams on the topic. And the fact that it made me learn the principle which I knew by heart, gave me that feeling which made me want to jump.&lt;/p&gt;
+
+&lt;h3 id=&#39;coursera&#39;&gt;&lt;em&gt;Coursera&lt;/em&gt;&lt;/h3&gt;
+
+&lt;p&gt;Online courses have taken off in the recent past. And I have been following it as well. What is wonderful about sites like &lt;a href=&#39;http://www.coursera.org&#39;&gt;Coursera&lt;/a&gt; is that there are a variety of course and most of the courses are concise.&lt;/p&gt;
+
+&lt;p&gt;I enrolled into a a few courses. Naturally, one learning from each course is about the course itself. What&amp;#8217;s been serendipitous for me is the perspectives and side learnings. An example, I took the Machine Learning course conducted by Prof. Andrew Ng.&lt;/p&gt;
+
+&lt;p&gt;Besides learning machine learning concepts/algorithms, I learnt to use Octave. But my a-ha moment was when Prof. Ng demonstrated how Vectorization can help optimize nested for loops.&lt;/p&gt;
+
+&lt;h3 id=&#39;internet&#39;&gt;&lt;em&gt;Internet&lt;/em&gt;&lt;/h3&gt;
+
+&lt;p&gt;Internet obviously is a wealth of knowledge. A few resources that I cherish/follow&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Ben Pierce&amp;#8217;s collection of articles on &lt;a href=&#39;http://www.cis.upenn.edu/~bcpierce/courses/670Fall04/GreatWorksInPL.shtml&#39;&gt;Great Works in Programming Languages&lt;/a&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;a href=&#39;http://news.ycombinator.com&#39;&gt;Hacker News&lt;/a&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;a href=&#39;http://lambda-the-ultimate.org/&#39;&gt;Lambda, the ultimate&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;</description>
+    </item>
+    
+    <item>
+      <title>Your search can be only as good as your data</title>
+      <link>http://sriv.github.com//2012/11/27/your-search-can-be-only-as-good-as-your-data/</link>
+      <pubDate>Tue, 27 Nov 2012 00:00:00 +0530</pubDate>
+      <author></author>
+      <guid>http://http://sriv.github.io//2012/11/27/your-search-can-be-only-as-good-as-your-data/</guid>
+      <description>&lt;p&gt;Very recently I was involved in a project that required us to implement a search feature. The setup is quite simple, and generic:&lt;/p&gt;
+
+&lt;p&gt;1) An Administration Application - Responsible for authoring/creating products and its attributes.&lt;/p&gt;
+
+&lt;p&gt;2) A catalogue application that also powers the public facing website, which has details about products.&lt;/p&gt;
+
+&lt;p&gt;In this project, the product managers have been consolidating Product details in their respective areas for a while (a few years). We were tasked with retrofitting the search engine to use the data.&lt;/p&gt;
+
+&lt;p&gt;Seems simple enough ? Here are few points that I learnt from this task.&lt;/p&gt;
+
+&lt;h3 id=&#39;data_issues_can_exist_at_all_level&#39;&gt;Data issues can exist at all level&lt;/h3&gt;
+
+&lt;h3 id=&#39;storagedesign&#39;&gt;&lt;em&gt;Storage/Design&lt;/em&gt;&lt;/h3&gt;
+
+&lt;p&gt;Bad data isn&amp;#8217;t just about &lt;strong&gt;&lt;em&gt;wrong data types&lt;/em&gt;&lt;/strong&gt;. Number stored as string, data-time woes combined with time zone complexities can be a data warehouse nightmare. Often, we had to add ad-hoc conditions to the data extraction logic.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;&lt;em&gt;Data integrity&lt;/em&gt;&lt;/strong&gt; is another case, where legacy databases which have grown in an ad-hoc fashion, often as a result of silo-ed application development. This causes cross database lookup, often not protected by foreign keys and such.&lt;/p&gt;
+
+&lt;p&gt;With such atomic databases being out of sync, data is duplicated and not in it&amp;#8217;s entirety. So &lt;strong&gt;&lt;em&gt;de-duplication&lt;/em&gt;&lt;/strong&gt; of data is one of the overheads.&lt;/p&gt;
+
+&lt;h3 id=&#39;human_error&#39;&gt;&lt;em&gt;Human Error&lt;/em&gt;&lt;/h3&gt;
+
+&lt;p&gt;Most data collection mechanisms involve manual entry. &lt;strong&gt;&lt;em&gt;Mis-spelling, mis-tagging, mis-classification etc. can have catastrophic effect&lt;/em&gt;&lt;/strong&gt; in the long run. The effect is magnified when dependencies on such data get added. Not only the entity itself is polluted, but it ends up affecting the entire chain.&lt;/p&gt;
+
+&lt;p&gt;Humans can be easily misguided, and lack of training can only make it worse. In some cases, excessive tagging is perceived as something that would boost up the product. Product managers have been religiously doing this. What they do not realize is &lt;strong&gt;&lt;em&gt;too much data is noise&lt;/em&gt;&lt;/strong&gt;, it is pollution.&lt;/p&gt;
+
+&lt;h3 id=&#39;conclusion&#39;&gt;Conclusion&lt;/h3&gt;
+
+&lt;p&gt;Bad data can be caused due to bad design or poor data capture mechanism. Sometimes, bad data can be curated by manual tasks. Some other times, there are patterns of bad data, and some automated tasks can help clean it up. However, there is a good chance that the data is not cleaned up at all.&lt;/p&gt;
+
+&lt;p&gt;No matter what tool/technology one looks at (be it Search tools like SOLR, or other data-warehouse tools) , the bottleneck in getting the right Search (or any analytics) is going to be data quality. These tools are mature enough to be close to perfect, given the perfect dataset. So, whenever there is a mismatch in expected v/s actual behaviour, I would first look at the data. Most problems/bugs that I have faced implementing a Search is because of bad data.&lt;/p&gt;</description>
+    </item>
+    
+    <item>
+      <title>How open source community helps me</title>
+      <link>http://sriv.github.com//2012/11/25/how-open-source-community-helps-me/</link>
+      <pubDate>Sun, 25 Nov 2012 00:00:00 +0530</pubDate>
+      <author></author>
+      <guid>http://http://sriv.github.io//2012/11/25/how-open-source-community-helps-me/</guid>
+      <description>&lt;p&gt;There has been a lot of buzz about open-source software lately. Thanks to sites like &lt;a href=&#39;http://www.github.com&#39;&gt;github&lt;/a&gt;, more and more people are looking at open-source software, and thankfully, the contributing community also seems to be growing.&lt;/p&gt;
+
+&lt;p&gt;Events like &lt;a href=&#39;http://www.foss.in&#39;&gt;FOSS&lt;/a&gt; helps promote awareness of open source software in India, where majority of the developers are working for companies that handle large &amp;#8216;enterpricey&amp;#8217; clients.&lt;/p&gt;
+
+&lt;p&gt;Up until a few years ago, I belonged to the above mentioned category of developers. I have had my fair share of projects that I am not proud of. It is not so much the nature of work that I am complaining, but the environment. I have worked for clients from various parts of the world and each one of them had different kind of restrictions. &amp;#8216;Trust&amp;#8217; was almost non-existent. In fact, one of the clients denied me internet access.&lt;/p&gt;
+
+&lt;p&gt;In the above mentioned eco-system, I did manage to learn some stuff that kept my interests. Nevertheless, if I were to assess myself as a programmer today, I will say that I am still not half as good as I&amp;#8217;d like to be. My list of topics of interest is growing by the day (and I hope that is a good thing!).&lt;/p&gt;
+
+&lt;p&gt;So, if the infrastructure was not there, how was I to know whether I was writing code the right way? More importantly, how would I know if I am wasting my time re-inventing the wheel? Most importantly, how would I learn from the experts?&lt;/p&gt;
+
+&lt;p&gt;One thing that has always helped me is - read others&amp;#8217; code. I have come across code that blows my mind away, and code that makes me cry.&lt;/p&gt;
+
+&lt;p&gt;More important than learning any language, is to be aware of the eco-system that exists around a language. In a consulting world, productivity matters. It matters for the clients, but even more it matters to me.&lt;/p&gt;
+
+&lt;p&gt;Open source community (and by that I mean various projects/people) have shown me different paths and solutions to various problems.&lt;/p&gt;
+
+&lt;h3 id=&#39;an_example&#39;&gt;An example&lt;/h3&gt;
+
+&lt;p&gt;Take this blog, it uses &lt;a href=&#39;https://github.com/code52/pretzel&#39;&gt;pretzel&lt;/a&gt;. I have been encouraged/nagged by various colleagues/friends to start a blog, but I have managed to procrastinate so far. When I finally got around to getting started, I wanted to have a light platform.&lt;/p&gt;
+
+&lt;p&gt;Github pages/Jekyll was a choice, but I wanted something with a .NET flavour. I found &lt;a href=&#39;https://github.com/code52/pretzel&#39;&gt;pretzel&lt;/a&gt;, and immediately fell in love with it.&lt;/p&gt;
+
+&lt;p&gt;Now I could have just downloaded the program, and used it. It has an excellent wiki.&lt;/p&gt;
+
+&lt;p&gt;But I decided to look at the code. And that is when I realized the guys were using &lt;a href=&#39;http://github.com/loudej/firefly&#39;&gt;Firefly&lt;/a&gt;, a very light HTTP server built on .NET. This has given me a spark - I write a lot of tests (I practise TDD and Continuous Integration). Firefly could be something worth investigating as a replacement to IIS in at least some tests. This could save some deploy and configuration time!&lt;/p&gt;
+
+&lt;p&gt;Now that was one lesson learnt. The other neat tool I came to know was &lt;a href=&#39;https://github.com/Code52/DownmarkerWPF&#39;&gt;MarkPad&lt;/a&gt;. This is a neat tool to edit markdown, with side by side preview. A simple idea, well executed. Thanks again to Code52 guys.&lt;/p&gt;
+
+&lt;h3 id=&#39;conclusion&#39;&gt;Conclusion&lt;/h3&gt;
+
+&lt;p&gt;What started off as a hunt for a blogging tool in .NET, not only led me to an answer (i.e Pretzel), but also led me to two other tools, that will come handy in other situations. This is good enough to keep me motivated to go through more such code online. At some point I wish to be in a more active(read contributing) state in this open source community than I am today.&lt;/p&gt;</description>
+    </item>
+    
+
+  </channel> 
+</rss>
