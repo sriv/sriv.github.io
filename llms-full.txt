@@ -1548,7 +1548,7 @@ Getting `AfterSuite` into the right place took a second attempt; the order is th
 
 The part I'd point to is in the description of that pull request, because it isn't code. A runner that doesn't support multithreading still gets one process per stream, and in that mode each process still runs the suite hooks. I couldn't fix that without the coordination machinery I didn't want. So the honest position was:
 
-> All runners should support multithreading in order to get the suite hooks to run as expected.
+> All runners should support multithreading to get the suite hooks to run as expected.
 
 That's a statement about the plugin contract, not about one runner. It meant the Java, C# and other runners had real work to do: shared state between streams had to become thread-safe, anything stored at suite level was now shared by every stream, and any step code that assumed it owned the process was now wrong. Some of that work landed in users' own step implementations, which is the uncomfortable part. A hook that used to run in isolation now runs once while other streams wait on it.
 
