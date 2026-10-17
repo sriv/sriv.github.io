@@ -16,7 +16,7 @@ Canonical: https://sriv.github.io/notes/from-one-terabyte-to-ten/
 
 > A distributed query engine that works at one terabyte has proved very little about ten. The lessons from this autumn, minus the numbers.
 
-This autumn I went back to distributed execution, this time on the Rust engine, with a simple-sounding goal: take a set of analytical queries that run well on one big machine and make them complete, and stay fast, when the data grows tenfold and the work spreads across many machines.
+This autumn I went back to distributed execution, this time on the Rust engine, with a simple-sounding goal: take a set of analytical queries that run well on one big machine and make them complete and stay fast when the data grows tenfold and the work spreads across many machines.
 
 I'm not going to share numbers here. But the lessons don't need them, and most of them are things I wish someone had told me at the start.
 
@@ -34,7 +34,7 @@ The second rule is the one that changed how we looked at results. A total runtim
 
 The easy way to distribute a single-node engine is to split the scans across workers and pull everything above them back to one coordinating node. It works well at first, because scans are where most of the time goes on small data.
 
-It stops working as the data grows, and Amdahl's law tells you exactly why. Whatever still runs on the coordinator (the joins above the bottom one, final aggregations, window functions, anything over a materialised intermediate result) is the serial part of the job. Add machines and the parallel part shrinks, but the coordinator's share stays put and becomes the whole runtime.
+It stops working as the data grows, and Amdahl's law tells you exactly why. Whatever still runs on the coordinator (joins, final aggregations, window functions, anything over a materialised intermediate result) is the serial part of the job. Add machines and the parallel part shrinks, but the coordinator's time doesn't, so its share grows until it is most of the runtime. And when that work grows with the input, ten times the data makes the serial part ten times bigger as well.
 
 The measure that taught me the most was simply: **what fraction of each query's time is spent on the coordinator?** A rule I'd now give any team: coordinator work should be proportional to the size of the *result*, not the size of the *input*. Any operator that breaks that rule doesn't belong on the coordinator. It's next on the list to distribute.
 
@@ -50,11 +50,11 @@ The better answer is almost always to spread the working set. A large intermedia
 
 ## Understand before you run
 
-A full run at this scale ties up a fleet of large machines for close to an hour. Early on we fell into a loop: guess a cause, change something, run again, see no difference, guess again. After the third run in a row that didn't move anything, I started calling it rock, paper, scissors, and we stopped.
+A full run at this scale ties up a fleet of large machines for a long time. Early on we fell into a loop: guess a cause, change something, run again, see no difference, guess again. After the third run in a row that didn't move anything, I started calling it rock, paper, scissors, and we stopped.
 
 What replaced it:
 
-- **Stop guessing and explain the slowdown from the data you already have.** Split each query's wall time into coordinator work, worker compute, time waiting on exchanges, and idle time. The answer was usually already sitting in the logs from the last run.
+- **Stop guessing and explain the slowdown from the data you already have.** Split each query's wall time into coordinator work, worker compute, time waiting on exchanges, and idle time. The answer was usually already sitting in the output of the last run.
 - **One run per mechanism, with the prediction written first.** If you can't say what number should move and by roughly how much, you don't understand it yet.
 - **Never change two things in one run.** We once changed a setting and the set of queries in the same run, and the result couldn't be compared to anything.
 
@@ -64,14 +64,14 @@ Most of the debugging happened on a laptop, not in the cloud. The trick is that 
 
 Two cautions from doing this:
 
-- **Collect statistics first.** Without table statistics, the planner picks join orders more or less at random, and you end up measuring the planner instead of the engine.
-- **Keep a correctness oracle.** Every distributed run gets compared, row for row, against a single-node run of the same queries. A distributed engine that's fast and occasionally wrong is worse than useless.
+- **Collect statistics first.** Without table statistics, the planner falls back to heuristics, often little better than the order the query was written in, and you end up measuring the planner instead of the engine.
+- **Keep a correctness oracle.** Every distributed run gets compared against a single-node run of the same queries, as unordered rows with a tolerance for floating point, of the same queries. A distributed engine that's fast and occasionally wrong is worse than useless.
 
 ## Bugs that need two machines
 
 Some bugs don't exist until there's more than one node. Two kinds caught me out:
 
-- **A reader that stops reading can block every writer.** A hash join with an empty build side can reasonably decide not to read its probe input at all, and a `LIMIT` that has seen enough rows can stop reading the rest. In one process that's a free shortcut. In a distributed plan, that input is often an exchange, and its writers on other machines sit waiting for a reader that will never come. Every consumer of an exchange has to either drain it or say clearly that it's done.
+- **A reader that stops reading can block every writer.** An inner hash join with an empty build side can reasonably decide not to read its probe input at all, and a `LIMIT` that has seen enough rows can stop reading the rest. In one process that's a free shortcut. In a distributed plan, that input is often an exchange, and its writers on other machines sit waiting for reads that will never come. Every consumer of an exchange has to either drain it or say clearly that it's done.
 - **Shared flow control hides in the transport.** Many logical streams multiplexed over one connection share that connection's flow-control window. If enough of them stall, all of them stall. That bug appeared only with two or more nodes and disappeared when buffers were made huge, which is exactly the pattern to look for.
 
 The general lesson is to make hangs talk. A warning that says "this exchange has been stalled for five seconds, and here's who is waiting on whom" turns a frozen query into a bug report.
@@ -82,13 +82,13 @@ The most expensive mistake of the autumn wasn't in the engine. A missing setting
 
 In the same vein, a per-node agent added to every machine in the cluster quietly took up a little memory. That was enough for our executor's memory request to stop fitting, and the setup step reported it as a capacity problem.
 
-Both have the same lesson: **log the decision, not just the outcome.** Each query now records whether it distributed, how, and if not, why not. Each run checks that its machines are the ones it asked for. A result you haven't checked the setup of is just a number.
+Both teach the same lesson: **record the decision, not just the outcome.** Each query now records whether it distributed, how, and if not, why not. Each run checks that its machines are the ones it asked for. A result from a setup you haven't checked is just a number.
 
 ## Scale shows you which plans were only lucky
 
 The last lesson is about the planner. At one terabyte, a few queries were planned badly and nobody noticed, because a bad plan over modest data still finishes. At ten terabytes the same plan never finishes. One query with join keys buried inside `OR` branches got a nested-loop join, which was a minor slowdown at small scale and impossible at large scale.
 
-Scaling up is the cheapest bug-finder you have for the planner. Anything quadratic is waiting for you there.
+Scaling up is the most reliable bug-finder you have for the planner. Anything quadratic is waiting for you there.
 
 ## Where we're taking it
 
@@ -101,7 +101,7 @@ All of the above is ground any team will cover when they distribute a single-nod
 - **Distribute before you spill.**
 - **Explain, predict, then run.** One mechanism per run, with the expected result written down first.
 - **Reproduce at small scale under memory pressure, with statistics and an oracle.**
-- **Log every distribution decision, and check the setup of every run.** A run that passes without distributing will happen to you.
+- **Record every distribution decision, and check the setup of every run.** A run that passes without distributing will happen to you.
 
 ---
 
@@ -110,9 +110,9 @@ All of the above is ground any team will cover when they distribute a single-nod
 By Srikanth Venugopalan, 23 August 2026. Topics: indexes, iceberg.
 Canonical: https://sriv.github.io/notes/skipping-indexes/
 
-> Most indexes in an analytical engine exist to rule data out; a few point straight at rows. How each kind works, when it pays, where Iceberg's Puffin files fit, and what building them taught me.
+> In an engine that reads files from object storage, most indexes exist to rule data out; a few point straight at rows. How each kind works, when it pays, where Iceberg's Puffin files fit, and what building them taught me.
 
-Say "index" to someone who grew up on OLTP databases and they picture a B-tree: a structure that takes a key and walks to the row. Analytical engines have indexes too, but most of them are built for a different job. A query that aggregates millions of rows doesn't need a pointer to one of them. It needs to avoid reading the files and row groups that can't contribute. And when the data sits in object storage as immutable files, the unit you pay for is a request, not a row.
+Say "index" to someone who grew up on OLTP databases and they picture a B-tree: a structure that takes a key and walks to the row. Analytical engines have indexes too, but in an engine that reads files from object storage, most of them are built for a different job. A query that aggregates millions of rows doesn't need a pointer to one of them. It needs to avoid reading the files and row groups that can't contribute. And when the data sits in object storage as immutable files, the cost that usually dominates is a request, not a row.
 
 So the indexes in this note fall into two groups. Most are **skipping indexes**. They answer "which pieces of data can I prove don't contain what this query wants?", and say where a value can't be rather than where it is. A few, such as inverted and bitmap indexes, do point at rows: they hand the scan the exact positions worth decoding. Engines like Apache Druid, Apache Pinot and Apache Doris rely heavily on that second kind. Everything in [the cheapest row is the one you never read](https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/) applies to both, including the one rule that matters most: an index may answer "maybe" as often as it likes, but it must never give a wrong "no".
 
@@ -126,11 +126,11 @@ An index works at some granularity, and the granularity decides both what it sav
 
 *Each level up is cheaper to ask and less precise.*
 
-- **Partition.** Skip a whole directory of files without opening any of them. Cheapest to consult, coarsest answer.
-- **File.** Skip one data file. On object storage this is the one that matters most, because a skipped file is requests you never make.
+- **Partition.** Skip every file in a partition without opening any of them. Cheapest to consult, coarsest answer.
+- **File.** Skip one data file. On object storage this is the one that matters most, because a skipped file means requests you never make.
 - **Row group.** Skip a chunk inside a file you've already decided to open. Saves bytes and decoding, but you've paid for the footer.
-- **Page.** Skip a few kilobytes inside a column chunk. Useful on selective queries over well-sorted data.
-- **Row.** Hand the scan a bitmap of the rows worth decoding. Precise, and the largest structures by far.
+- **Page.** Skip a single page inside a column chunk, typically up to a megabyte. Useful on selective queries over well-sorted data.
+- **Row.** Hand the scan a bitmap of the rows worth reading. Precise, and the largest structures by far.
 
 Every level up the ladder is cheaper to ask and less precise. The usual mistake is to build a fine-grained index when the expensive thing is coarse. If a query opens a thousand files to find matches in three, a row-level index inside each file doesn't fix it. You need something that rules out the other 997 before they're opened.
 
@@ -138,9 +138,9 @@ Every level up the ladder is cheaper to ask and less precise. The usual mistake 
 
 ### Min/max bounds
 
-The oldest trick. For each column, keep the smallest and largest value in each file or row group. A predicate like `ts > '2026-08-01'` skips every chunk whose maximum is earlier.
+The oldest trick. For each column, keep the smallest and largest value in each file or row group. A predicate like `ts > '2026-08-01'` skips every chunk whose maximum is on or before that date.
 
-Bounds are nearly free to compute and store, and Parquet and Iceberg both keep them already: Parquet per row group and, with the page index, per page; Iceberg per data file in its manifests.
+Bounds are nearly free to compute and store, and Parquet and Iceberg both keep them already: Parquet per row group and, with the page index, per page; Iceberg per data file in its manifests. (Iceberg truncates string bounds and, by default, keeps them only for the first hundred columns.)
 
 **When they pay:** when the data is sorted or clustered on the column, so each chunk covers a narrow range. Time columns in append-only tables are the classic case.
 
@@ -148,9 +148,9 @@ Bounds are nearly free to compute and store, and Parquet and Iceberg both keep t
 
 ### Exact value sets, with a cap
 
-For a low-cardinality column (a status, a region, a service name) you can store the actual set of distinct values in each file. Then `status = 'FAILED'` skips any file whose set doesn't contain it, and an `IN` list checks each value. Unlike bounds, this works no matter how the data is laid out.
+For a low-cardinality column (a status, a region, a product category) you can store the actual set of distinct values in each file. Then `status = 'FAILED'` skips any file whose set doesn't contain it, and an `IN` list checks each value. Unlike bounds, it doesn't need the column to be sorted, but it still only helps when a value is missing from many files: rare values, or data that's clustered by something correlated with it.
 
-The cap is the whole design. Above some number of distinct values the set stops being cheap, so the writer gives up and records "too many to list". That marker has to mean **maybe**, and it has to stay maybe forever after. More on that below.
+The cap is the whole design. Above some number of distinct values the set stops being cheap, so the writer gives up and records "too many to list". That marker has to mean **maybe**, and it has to stay maybe through every merge, until the index is rebuilt from the data. More on that below.
 
 **When they pay:** equality and `IN` filters on columns with tens to low thousands of distinct values per file. In practice a single well-chosen value set can account for most of the skipping on a table.
 
@@ -160,9 +160,9 @@ For high-cardinality columns where you look up one value at a time (IDs, keys, h
 
 The mechanics fit in a paragraph. Allocate *m* bits. To insert a value, hash it *k* ways and set those *k* bits. To query, check the same *k* bits: if any is zero, the value was never inserted. For a target false-positive rate *p* you need about 1.44 × log₂(1/*p*) bits per distinct value, so around 9.6 bits for 1%, with *k* ≈ 7.
 
-The useful way to reason about a bloom filter after the fact is its **fill**: the fraction of bits set. The false-positive rate is roughly fill to the power *k*. A filter that's half full with *k* = 7 lies about 1% of the time. A filter that's 90% full lies about half the time, and at that point it's paying its storage and a read to tell you almost nothing.
+The useful way to reason about a bloom filter after the fact is its **fill**: the fraction of bits set. The false-positive rate is roughly fill to the power *k*. A filter that's half full with *k* = 7 answers "maybe" for an absent value about 1% of the time. A filter that's 90% full does so about half the time, and at that point it's paying its storage and a read to tell you almost nothing.
 
-**When they pay:** point lookups and small `IN` lists on high-cardinality columns. Parquet supports them per column chunk, though most writers leave them off ([bloom filters at the scan](https://sriv.github.io/notes/bloom-filters-at-the-scan/) is about that).
+**When they pay:** point lookups and small `IN` lists on high-cardinality columns. Parquet supports them per column chunk, as split-block filters that need a few more bits for the same rate, though most writers leave them off ([bloom filters at the scan](https://sriv.github.io/notes/bloom-filters-at-the-scan/) is about that).
 
 **When they don't:** range predicates, `LIKE '%x%'`, anything that isn't equality. And columns where every file contains most values anyway.
 
@@ -170,11 +170,11 @@ The useful way to reason about a bloom filter after the fact is its **fill**: th
 
 For text, the question is "which rows contain this token?". An inverted index answers it with two parts.
 
-The **term dictionary** maps each distinct token to where its postings live. A good choice for an immutable file is a finite-state transducer (FST): a minimal automaton over the sorted terms that shares both prefixes and suffixes, so a dictionary of millions of terms is often a fraction of the raw strings, and it supports prefix and range lookups for free. Lucene has used them for years for this reason.
+The **term dictionary** maps each distinct token to where its postings live. A good choice for an immutable file is a finite-state transducer (FST): a minimal automaton over the sorted terms that shares both prefixes and suffixes, so a dictionary of millions of terms is often a fraction of the raw strings, and it supports prefix and range lookups for free. Lucene uses one as the index into its term dictionary, and Tantivy uses one as the dictionary itself.
 
-The **postings** are, for each term, the set of row positions containing it. Compressed bitmaps such as Roaring are the usual format: they pick a dense or sparse representation per block of 65,536 positions, and intersecting two of them for `a AND b` is fast.
+The **postings** are, for each term, the set of row positions containing it. Compressed bitmaps such as Roaring are the usual format: they pick a sparse array, a dense bitmap or a run-length representation per block of 65,536 positions, and intersecting two of them for `a AND b` is fast.
 
-Unlike the structures above, an inverted index locates rows rather than ruling out chunks. The scan reads the file, but only decodes the rows the bitmap names.
+Unlike the structures above, an inverted index locates rows rather than ruling out chunks. The scan still opens the file, but it only decodes the pages that hold rows the bitmap names, and only materialises those rows.
 
 **When they pay:** token search over text, where neither bounds nor value sets can help.
 
@@ -197,7 +197,7 @@ This is the structure that addresses the "opened a thousand files to find three"
 | The predicate looks like | Data layout | Reach for |
 |---|---|---|
 | range on a time or sequence column | sorted or clustered | min/max bounds, which you already have |
-| equality or `IN` on a low-cardinality column | any | value sets, with a cap |
+| equality or `IN` on a low-cardinality column | rare values, or clustered | value sets, with a cap |
 | equality on an ID or key | any | bloom filters per file or row group |
 | token in a text column | any | inverted index or token blooms |
 | "which files have value *x*?" across many files | any | value-to-file map at the partition |
@@ -209,28 +209,28 @@ Two questions decide most cases before any of this. Is the skipping limited by l
 
 Parquet and Iceberg manifests already carry bounds and counts. Anything beyond that needs a home, and Iceberg's answer is **Puffin**.
 
-A Puffin file is deliberately simple. It starts with the four magic bytes `PFA1`, then any number of **blobs** (opaque byte ranges), then a footer: the magic again, a JSON payload describing every blob, the payload's length, four bytes of flags, and the magic once more. A reader fetches the end of the file, finds the footer, and from the JSON learns each blob's type, byte range, compression codec, the columns it covers, and the snapshot it was computed for. Blobs can be compressed individually, so a reader pulls only the blobs it needs, with ranged reads.
+A Puffin file is deliberately simple. It starts with the four magic bytes `PFA1`, then any number of **blobs** (opaque byte ranges), then a footer: the magic again, a JSON payload describing every blob, the payload's length, four bytes of flags, and the magic once more. A reader fetches the end of the file, finds the footer, and from the JSON learns each blob's type, byte range, compression codec, the columns it covers, and the snapshot it was computed for. Each blob has its own offset and length and is compressed on its own, so a reader fetches only the blobs it needs, with ranged reads.
 
 The spec defines two blob types:
 
 - **`apache-datasketches-theta-v1`**: a theta sketch of a column's distinct values, with the estimate also stored as a property for readers that don't want to deserialize the sketch.
-- **`deletion-vector-v1`**: a Roaring bitmap of deleted row positions in one data file, introduced with the v3 format.
+- **`deletion-vector-v1`**: a serialized 64-bit Roaring bitmap of deleted row positions in one data file, with a length, magic bytes and a checksum around it, introduced with the v3 format.
 
-Table metadata points to Puffin files through **statistics** entries, one per snapshot, each listing the blobs it holds. That's the important detail for anyone planning to put skipping indexes in Puffin: the spec's statistics are table-level and tied to a snapshot. Deletion vectors are the exception, referenced from the manifest entry of the data file they apply to. For a custom per-file or per-partition index, the format is ready (any blob type you like, read with a ranged request) but where the files live and how a reader finds them is the engine's decision. And an index written for snapshot *n* says nothing about files added in *n*+1.
+Table metadata points to Puffin files through **statistics** entries, each tied to one snapshot and listing the blobs it holds. That's the important detail for anyone planning to put skipping indexes in Puffin: the spec's statistics are table-level and tied to a snapshot. Deletion vectors are the exception: each one has its own entry in a delete manifest, which names the data file it applies to and the byte range of its blob. For a custom per-file or per-partition index, the format is ready (any blob type you like, read with a ranged request) but where the files live and how a reader finds them is the engine's decision. And an index written for snapshot *n* says nothing about files added in *n*+1.
 
 ## What building them taught me
 
-Most of what went wrong this year wasn't in the structures. It was in the plumbing around them: what happens when a build is incomplete, when files are compacted, when two copies of an index disagree. Each lesson below came from a real bug or a near miss.
+Most of what went wrong this year wasn't in the structures themselves. It was in the plumbing around them: what happens when a build is incomplete, when files are compacted, when two copies of an index disagree. Each lesson below came from a real bug or a near miss.
 
 [Diagram: False-positive rate of a bloom filter built by OR-ing per-file blooms, each 1% full with seven hash functions. It stays near zero for small unions, reaches about 4% at 100 files, and about 70% at 300 files.]
 
 *A union of small, healthy blooms is a large, saturated one.*
 
-**An incomplete index is a lying index.** If the index is built while writing, and the indexer falls behind and skips even one batch, the result says "not here" about values that are there. The only safe response is to throw the whole index away. A missing index costs performance. A partial one costs correctness.
+**An incomplete index is a lying index.** If the index is built while writing, and the indexer falls behind and skips even one batch, the result says "not here" about values that are there. The safe responses are to throw the index away or mark it "maybe" for the whole file. A missing index costs performance. A partial one costs correctness.
 
 **Caps must degrade to "maybe", and stay there through merges.** When two files merge, their value sets union. If either side had given up, the merged set has given up too, even if the values that were recorded add up to only a few. The ones that weren't recorded are still in the data. Re-applying the cap on a union of two incomplete sets produces a confident, wrong answer.
 
-**Unions of bloom filters fill up.** Two bloom filters merge with a bitwise OR, but only if they have the same size and hash functions. And the union of *N* filters is fuller than any of them: with per-file fill *f*, the union's fill is 1 − (1 − *f*)^*N*. At 1% fill per file and *k* = 7, a union of 100 files is about 63% full and lies about 4% of the time. A union of 300 is 95% full and lies 70% of the time. A partition-level bloom built as an OR of per-file blooms has to be sized for the partition, not the file, or it should be checked for fill before anyone trusts it. I now write a fill check next to every bloom: above a threshold, don't emit it, and on the read side, don't trust it.
+**Unions of bloom filters fill up.** Two bloom filters merge with a bitwise OR, but only if they have the same size and hash functions. And the union of *N* filters is fuller than any of them: with per-file fill *f*, the union's fill is 1 − (1 − *f*)^*N*. If every per-file filter is sized for the partition (so they can be OR-ed) and so is 1% full, with *k* = 7, a union of 100 files is about 63% full and gives a false positive about 4% of the time. A union of 300 is 95% full and gives a false positive 70% of the time. A partition-level bloom built as an OR of per-file blooms has to be sized for the partition, not the file, or it should be checked for fill before anyone trusts it. I now write a fill check next to every bloom: above a threshold, don't emit it, and on the read side, don't trust it.
 
 **Compaction is where indexes go to die.** When small files merge into big ones, each index has three options: carry it forward (rebase row positions, union the sets), rebuild it from the merged rows, or drop it. Dropping is safe but silent: queries just get slower and nobody knows why. Carrying forward is cheap but has to respect every rule above. Rebuilding is the most expensive and the most correct. The bug I least want to repeat was a merge that kept the **wrong copy** of an index when two generations existed for the same file, and the reader then skipped files that matched. A stale index is worse than none.
 
@@ -253,24 +253,24 @@ Indexes in an analytical engine are mostly a hierarchy of cheap questions, each 
 By Srikanth Venugopalan, 5 June 2026. Topics: iceberg.
 Canonical: https://sriv.github.io/notes/a-metadata-tree-that-grows-with-the-change/
 
-> Iceberg v4 replaces the manifest list with a root manifest. It sounds like a file rename. It changes what a small commit costs.
+> The draft Iceberg v4 spec replaces the manifest list with a root manifest. It sounds like a file rename. It changes what a small commit costs.
 
-[Manifests are data too](https://sriv.github.io/notes/manifests-are-data-too/) was about manifests becoming Parquet files. This one is about the bigger structural change in version 4 of the Iceberg spec, the **adaptive metadata tree**. It's an explainer of the public spec plus what I learned implementing it. I'll only describe what's in the spec and upstream proposals, not anything specific to how we use it.
+[Manifests are data too](https://sriv.github.io/notes/manifests-are-data-too/) was about manifests becoming Parquet files. This one is about the bigger structural change in the draft version 4 of the Iceberg spec, the **adaptive metadata tree**. It's an explainer of the public spec plus what I learned implementing it. I'll only describe what's in the spec and upstream proposals, not anything specific to how we use it.
 
 ## How an Iceberg commit works today
 
 An Iceberg table is a tree of files. At the top is a table metadata file. It points to the current snapshot, and the snapshot points to a **manifest list**. The manifest list points to **manifests**, and each manifest lists data files along with their partition values and column statistics.
 
-A commit writes new files bottom-up and then atomically swaps the table's pointer from the old metadata file to the new one. If someone else committed first, you rebase and try again. That's the optimistic concurrency model, and it's the reason Iceberg works on plain object storage without a lock server.
+A commit writes new files bottom-up and then atomically swaps the table's pointer from the old metadata file to the new one. If someone else committed first, you rebase and try again. That's the optimistic concurrency model, and it's the reason Iceberg works on plain object storage without table locks: the only coordination is one atomic swap in the catalog.
 
 Now look at what a small append writes in versions 1 to 3:
 
 1. the new data file,
-2. a new manifest listing it (the "fast append"),
+2. a new manifest listing it (this is what a fast append does),
 3. a **new manifest list** containing an entry for *every* manifest in the snapshot,
 4. a new table metadata file.
 
-Step 3 is the problem. The manifest list is rewritten on every commit, and its size grows with the number of manifests in the table, not with the size of the change. A writer that appends small batches often keeps adding manifests, so each commit rewrites a slightly bigger list than the last. Eventually someone has to run manifest rewriting in the background to merge them, which is another writer competing for the same commit pointer.
+Step 3 is the problem. The manifest list is rewritten on every commit, and its size grows with the number of manifests in the table, not with the size of the change. A writer that frequently appends small batches keeps adding manifests, so each commit rewrites a slightly bigger list than the last. Eventually the manifests have to be merged, either inline during some commits, which makes those commits bigger, or by a background rewrite, which is another writer competing for the same commit pointer.
 
 The cost of a commit ends up tracking the size of the table's metadata rather than the size of the change. For tables that are mostly read and occasionally written that's fine. For tables that take a steady stream of small appends it becomes the bottleneck.
 
@@ -282,7 +282,7 @@ Version 4 removes the manifest list. Each snapshot points to a single **root man
 - **leaf manifests**, which hold data files,
 - older v1–v3 manifests, so existing tables can be upgraded without rewriting history.
 
-Both root and leaf manifests are Parquet files in v4, not Avro, which is what that post was about.
+Root and leaf manifests written in v4 are Parquet files, not Avro, which was the subject of the previous post.
 
 [Diagram: In Iceberg v1 to v3, table metadata points to a manifest list that is rewritten on every commit and has one entry per manifest, so a small append writes a new manifest and a growing list. In v4, table metadata points to a Parquet root manifest that holds leaf manifests and can hold data files directly; small appends go straight into the root, and a deletion bitmap on the root's entry marks files in a leaf as removed without rewriting the leaf.]
 
@@ -296,9 +296,9 @@ That's what "adaptive" means here. The tree is shallow where things change often
 
 The second piece is about deletes and compaction. In v1–v3, if compaction replaces ten small files with one big one, every manifest that listed those ten files has to be rewritten without them.
 
-Version 4 adds **manifest deletion vectors**. The root manifest's entry for a leaf can carry a bitmap of positions in that leaf that are no longer live. Removing a file from a leaf means setting a bit on the root entry, while the leaf itself stays untouched. The bitmaps use [Mumbling](https://iceberg.apache.org/mumbling-spec/), a compact bitmap encoding the Iceberg project specifies for this, and each one records which snapshot last changed it.
+Version 4 adds **manifest deletion vectors**. The root manifest's entry for a leaf can carry a bitmap of positions in that leaf that are no longer live. Removing a file from a leaf means setting bits on the root entry, while the leaf itself stays untouched. The bitmaps use [Mumbling](https://iceberg.apache.org/mumbling-spec/), a compact bitmap encoding the Iceberg project specifies for this, and the root entry records which snapshot last changed them.
 
-The same idea shows up one level down. A data file's own deletion vector, the bitmap of deleted rows inside it, now lives in the same manifest entry as the data file. Readers no longer have to plan in two phases, finding data files first and then doing a second lookup to match delete files to them. The deletes sit in the same entry as the file they apply to, so planning reads one thing instead of joining two.
+The same idea shows up one level down. A data file's own deletion vector, the bitmap of deleted rows inside it, now lives in the same manifest entry as the data file. For files written under v4, readers no longer have to plan in two phases, finding data files first and then doing a second lookup to match delete files to them. The deletes sit in the same entry as the file they apply to, so planning reads one thing instead of joining two.
 
 ## Smaller changes that matter to implementers
 
@@ -307,7 +307,7 @@ A few other v4 rules changed how I wrote code more than I expected:
 - **Strictly increasing snapshot timestamps.** On a v4 table, a snapshot's timestamp must be strictly greater than its parent's on the same branch. Two fast writers on machines with slightly different clocks can break that, so the commit path has to compare against the parent and bump the timestamp past it when the local clock hasn't moved far enough, rather than trusting the machine's time.
 - **Relative paths.** Metadata can store file locations relative to the table location, which makes copying or moving a table much less painful.
 - **No new equality deletes.** Writers can't produce new equality delete files in v4. Existing ones stay readable.
-- **Sequence numbers are inherited.** New entries are written without a sequence number, and readers fill it in from the parent. That's what lets a writer write a leaf manifest once and reuse it across commit retries. Only the root has to be rewritten when the commit is retried.
+- **Sequence numbers are still inherited.** As in v2 and v3, files added to a new leaf manifest are written without a sequence number, and readers fill it in from the root manifest's entry for that leaf. That's what lets a writer write a leaf manifest once and reuse it across commit retries. Only the root has to be rewritten when the commit is retried.
 
 ## What I learned implementing it
 
@@ -324,28 +324,28 @@ A few other v4 rules changed how I wrote code more than I expected:
 By Srikanth Venugopalan, 13 May 2026. Topics: iceberg.
 Canonical: https://sriv.github.io/notes/manifests-are-data-too/
 
-> Iceberg's metadata files have always been row-oriented Avro. Version 4 makes them Parquet. Everything I'd learned about not reading data turned out to apply to metadata as well.
+> Iceberg's manifests have always been row-oriented Avro. The draft version 4 spec makes them Parquet. Everything I'd learned about not reading data turned out to apply to metadata as well.
 
 This year I moved down a layer. After two years inside query engines, deciding what not to read, I started working on the table format underneath them: [Apache Iceberg](https://iceberg.apache.org/), and specifically the metadata changes going into version 4 of its spec.
 
-The first piece I implemented was the smallest-sounding one: writing **manifests** as Parquet instead of Avro. At the time it was a proposal under discussion upstream. It has since landed in the v4 spec. This post is about why such a dull-sounding change matters, and why it helped commits as well as queries.
+The first piece I implemented was the smallest-sounding one: writing **manifests** as Parquet instead of Avro. At the time it was a proposal under discussion upstream. It has since been merged into the v4 draft of the spec, which hasn't been formally adopted yet. This post is about why such a dull-sounding change matters, and why it helped commits as well as queries.
 
 ## What a manifest is, and who reads it
 
-An Iceberg manifest is a list of files. Each entry describes one data file: its path, partition values, row count, and statistics for its columns: lower and upper bounds, null counts and so on.
+An Iceberg manifest is a list of files. Each entry describes one data file: its path, partition values, row count, and statistics for its columns (lower and upper bounds, null counts and so on).
 
 Two kinds of readers open manifests:
 
 - **Query planning** reads them to decide which data files a query needs, using the partition values and column bounds. This is the pruning ladder from [the cheapest row is the one you never read](https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/), one level up.
-- **Commits** read them too, which is easy to forget. A compaction has to confirm the files it's replacing are still in the table. A retried commit has to look at what changed underneath it. A snapshot summary needs counts.
+- **Commits** read them too, which is easy to forget. A compaction has to confirm the files it's replacing are still in the table. A retried commit has to look at what changed underneath it. A delete or overwrite needs the record counts of the files it removes, for the snapshot summary.
 
-In versions 1 to 3, a manifest is an Avro file, which stores data row by row. To get any field of an entry, you decode the whole entry.
+In versions 1 to 3, a manifest is an Avro file, which stores data row by row. To get any field of an entry, you still have to read through the whole entry, because there's no way to jump straight to one field.
 
 ## Where Avro hurts
 
 The column statistics are where it shows. In v1–v3 each entry stores them as maps from column ID to a value: one map for lower bounds, one for upper bounds, more for null counts, value counts and sizes. The bounds are stored as bytes, which the reader then has to decode according to each column's type.
 
-Picture a wide table with a few hundred columns and a query that filters on one of them. Every manifest entry carries bound maps for all of those columns, and planning decodes all of it to find the one pair of bounds it needs. Most of the bytes read during planning belong to columns the query never mentions.
+Picture a wide table with a few hundred columns and a query that filters on one of them. Every manifest entry carries bound maps for every column that has metrics enabled, which by default is the first hundred, and planning decodes all of it to find the one pair of bounds it needs. Most of the bytes read during planning belong to columns the query never mentions.
 
 It's the same problem as reading rows you don't need, just in metadata instead of data. And the fix is the same one.
 
@@ -353,7 +353,7 @@ It's the same problem as reading rows you don't need, just in metadata instead o
 
 In v4, manifests are Parquet files. The statistics change shape too. Instead of maps of bytes, each table column gets its own typed struct inside a `content_stats` field. A column's bounds are stored as that column's real type, so an `int` column has `int` bounds.
 
-Each stats struct gets a fixed block of 200 field IDs, worked out from the table column's own ID: `10_000 + 200 × field-id`. That leaves room for every metric a column can have, including nested ones like geospatial bounds. A reader that wants the bounds for column 2 knows exactly which Parquet columns hold them, without looking at anything else.
+Each stats struct gets a fixed block of 200 field IDs, starting at `10_000 + 200 × field-id`. That leaves room for every metric a column can have, including nested ones like geospatial bounds. A reader that wants the bounds for column 2 knows exactly which Parquet columns hold them, without looking at anything else.
 
 [Diagram: An Avro manifest stores each file entry as a row, with column statistics in maps over every column, so finding one column's bounds decodes every entry in full. A Parquet manifest stores each field as a column, so a filter on c2 reads only the path column and c2's typed statistics. Commits benefit too, since they read narrow slices such as paths, statuses and counts.]
 
@@ -362,16 +362,16 @@ Each stats struct gets a fixed block of 200 field IDs, worked out from the table
 That buys three things:
 
 - **Projection.** Planning reads only the stats columns for the columns in the filter, plus the path. The rest of the manifest stays on disk.
-- **No byte decoding.** Bounds come out as typed values, already in the right representation.
-- **Pruning inside metadata.** A Parquet manifest has its own row-group statistics. A large manifest can skip whole chunks of its entries before decoding them, using the same min/max machinery we use on data.
+- **No per-type byte parsing.** Bounds come out as typed values, already in the right representation.
+- **Pruning inside metadata.** A Parquet manifest has its own row-group statistics. A large manifest whose entries are clustered, for example by partition, can skip whole chunks of them before decoding, using the same min/max machinery we use on data.
 
 ## Why commits got cheaper
 
 The query-side win is the obvious one. The commit-side win surprised me more.
 
-Most of what a commit reads from existing manifests is narrow. Validating a compaction mostly needs paths and statuses. Rebasing a retry needs to know which entries changed. Updating summary counts needs record counts. With Avro, each of those still decoded whole entries, statistics maps included. With Parquet, each reads the one or two columns it needs.
+Most of what a commit reads from existing manifests is narrow. Validating a compaction mostly needs paths and statuses. Rebasing a retry needs to know which entries changed. Updating the summary needs the record counts of removed files. With Avro, each of those still decoded whole entries, statistics maps included. With Parquet, each reads the one or two columns it needs.
 
-Writing got better too. Manifest columns are very repetitive (long, similar file paths, the same partition values, similar row counts), and columnar compression handles that well. Smaller manifests are cheaper to write, upload and read back on the next commit.
+Writing got better too. Manifest columns are very repetitive (long, similar file paths, the same partition values, similar row counts), and columnar encoding and compression handle that far better than compressing blocks of whole rows, which is what Avro does. Smaller manifests are cheaper to write, upload and read back on the next commit.
 
 A commit is a chain of small reads and writes against object storage, and every one of them sits inside the window where another writer can beat you to it. Making each step touch fewer bytes makes the window shorter, and a shorter window means fewer retries.
 
@@ -387,7 +387,7 @@ Parquet isn't free, and it's worth being honest about where it loses:
 
 - **Treat metadata as data.** Everything you know about columnar layout, projection and pruning applies. It's easy to forget, because metadata files feel small, until a table has millions of them.
 - **Look at the commit path, not just planning.** The reads a commit does are narrow and frequent, and they're exactly the kind columnar formats are good at.
-- **Round-trip every type.** Bounds for floats (where `NaN` has no place in the ordering and `-0.0` and `+0.0` compare equal but aren't the same bits), decimals, timestamps and strings all have edge cases. A test that writes and reads back every type is cheap, and it's worth writing before anything else.
+- **Round-trip every type.** Bounds for floats (where `NaN` can never be a bound and is counted separately, and `-0.0` must sort before `+0.0` even though they compare equal), decimals, timestamps and strings all have edge cases. A test that writes and reads back every type is cheap, and it's worth writing before anything else.
 - **Build ahead of a spec behind a switch.** Implementing a proposal early teaches you a lot, but the format will change before it's final, and you don't want existing tables quietly committed to your first guess.
 
 ---
@@ -418,9 +418,9 @@ Everything else was rewritten from scratch, and it should have been. The Java im
 
 DataFusion is built to be extended, and the most useful decision in the port was to lean on that instead of fighting it.
 
-DataFusion already knows how to prune Parquet row groups. Given a query's filter, it builds a **pruning predicate**, then asks a statistics provider for the min, max and null counts of each row group and works out which row groups can't possibly match. The provider is an interface. DataFusion ships one that reads the Parquet footer, but nothing stops you from supplying your own.
+DataFusion already knows how to prune Parquet row groups. Given a query's filter, it builds a **pruning predicate**, then asks a statistics provider for each row group's min, max, null and row counts, and whether it could contain a given set of values and works out which row groups can't possibly match. The provider is an interface. DataFusion ships one that reads the Parquet footer, but nothing stops you from supplying your own.
 
-So the dynamic index became exactly that: a statistics provider backed by our index store. Our code answers "what's the min and max of this column in row group 3 of this file?", or "I don't know", and DataFusion's existing logic does the rest: `AND`, `OR`, `IN`, ranges, negation, all of it. In the Java engine I'd written and tested that predicate logic myself. Here I got it for free, along with everyone else's bug fixes.
+So the dynamic index became exactly that: a statistics provider backed by our index store. Our code answers "what's the min and max of this column in row group 3 of this file?", "could it contain 42?", or "I don't know", and DataFusion's existing logic does the rest: `AND`, `OR`, `IN`, ranges and the common forms of negation, and anything it can't rewrite becomes "maybe". In the Java engine I'd written and tested that predicate logic myself. Here I got it for free, along with everyone else's bug fixes.
 
 The other half was the scan itself. Rather than fork DataFusion's Parquet source, I wrapped it: our source holds the stock one and passes every call through, except opening a file, where it narrows the list of row groups to read before handing over. My first cut copied more of the stock source than it needed to. The rewrite later that day was mostly deleting those copies and passing calls through.
 
@@ -428,7 +428,7 @@ The other half was the scan itself. Rather than fork DataFusion's Parquet source
 
 *Cheapest check first. DataFusion does the predicate logic; the dynamic index only has to answer questions about row groups.*
 
-The order of the checks matters. Our index lives in memory, so it goes first. The footer statistics come next, since the footer has already been read. Parquet's own bloom filters are last, because checking them means fetching more bytes. Each check only sees the row groups the cheaper ones before it let through.
+The order of the checks matters. Our index lives in memory, so it goes first. The footer statistics come next, since the footer has already been read. Parquet's own bloom filters come after that, because checking them means fetching more bytes, and page-index pruning after them. Each check only sees the row groups the cheaper ones before it let through.
 
 ## The filter that moved
 
@@ -436,7 +436,7 @@ This is where the port taught me something about the original.
 
 In the Java engine, the scan decoded a row group into batches and a separate filter operator dropped rows afterwards. Whatever the scan produced was the whole row group. Building an index from it was safe almost by accident, because nothing upstream had thrown rows away.
 
-DataFusion can push filters down into the Parquet reader itself, so rows that don't match are dropped *while* decoding. That's a real performance win, and you want it on. It also means the batches that come out of the scan are no longer the row group. They're the part of the row group the current query cared about. Build a min/max or a bloom filter from that, and you've built an index that will confidently say "no" to values that are sitting right there in the file.
+DataFusion can drop rows inside the Parquet reader itself: filter pushdown evaluates predicates while decoding, and page-index pruning skips whole pages before decoding starts. That's a real performance win, and you want it on. It also means the batches that come out of the scan are no longer the row group. They're the part of the row group the current query cared about. Build a min/max or a bloom filter from that, and you've built an index that will confidently say "no" to values that are sitting right there in the file.
 
 In Java this rule had been met by the shape of the engine. In Rust it had to be enforced deliberately: an index is only kept when we know it was built from the whole row group, and anything less is discarded. I won't go into the mechanism here. The important part is being able to name the rule. Once you can say "never keep an index built from a partial view", a whole class of bugs becomes something you check for rather than something you stumble into.
 
@@ -447,8 +447,8 @@ The first Rust version fed values into a bloom filter with a separate branch for
 That one change removed a surprising amount of code:
 
 - **No type-specific logic.** Integers, strings, dates and decimals all go through the same filter once they're hashed.
-- **Uniform size.** Every filter for a given expected row count is the same size, which makes memory accounting predictable.
-- **Mergeable.** Two filters of the same size combine with a bitwise OR, so filters built in pieces can be joined without going back to the data.
+- **Uniform size.** Every filter for a given expected row count and false-positive rate is the same size, which makes memory accounting predictable.
+- **Mergeable.** Two filters of the same size and hash scheme combine with a bitwise OR, so filters built in pieces can be joined without going back to the data.
 
 The one thing to be careful of is that the hash has to be stable and has to agree between the side that builds the filter and the side that probes it. Hash `5` as an `INT` when you build the filter, probe it with the `BIGINT` literal the query planner produced, and you get a wrong "no". It's the same bug from [the bloom filter post](https://sriv.github.io/notes/bloom-filters-at-the-scan/) in different clothes.
 
@@ -468,7 +468,7 @@ Canonical: https://sriv.github.io/notes/spot-instances-and-the-query-that-must-n
 
 > Spot capacity is the cheapest compute a cloud will sell you, and it comes with a short warning before it's taken back. Deciding where in the stack to absorb that warning was the interesting part.
 
-By the second half of 2025 spot instances were one of the bigger levers we had on cost: spare cloud capacity sold at a deep discount, on the understanding that the provider can take it back. AWS gives you a two-minute warning. Azure and GCP give you closer to thirty seconds. Then the machine is gone.
+By the second half of 2025 spot instances were one of the bigger levers we had on cost: spare cloud capacity sold at a deep discount, on the understanding that the provider can take it back. AWS gives you a two-minute warning, sometimes earlier with a rebalance recommendation. Azure and GCP give you about thirty seconds. Then the machine is gone.
 
 For a stateless web service that's an annoyance. For a distributed query engine it's a real problem. An executor that disappears mid-query takes with it the tasks it was running, any intermediate results it was holding, and, if it happened to be coordinating the query, the query itself.
 
@@ -482,7 +482,7 @@ There are three obvious places to put recovery, and they behave very differently
 
 **Retry the tasks.** The queue that hands out work knows which tasks went to which executor. If an executor dies, its unfinished tasks can be handed to someone else. The query keeps running and only the lost slice is redone.
 
-**Retry the query.** Throw the whole query away and run it again from the top. Simple and always correct, but it can turn a short interruption into a much longer query.
+**Retry the query.** Throw the whole query away and run it again from the top. Simple and correct for a read-only query that hasn't returned anything yet, but it can turn a short interruption into a much longer query.
 
 The answer I landed on was all three, each at the level where it's cheapest, plus a fourth step that comes before any of them: use the warning.
 
@@ -492,13 +492,13 @@ The answer I landed on was all three, each at the level where it's cheapest, plu
 
 ## First, use the warning
 
-Even thirty seconds is a long time for an executor, and two minutes is a lot. Most scan tasks finish in seconds. So the first thing each executor got was a small detector per cloud that watches for the interruption notice: the instance metadata endpoint on AWS, scheduled events on Azure, the preemption signal on GCP.
+Even thirty seconds is a long time for an executor, and two minutes is a lot. Most scan tasks finish in seconds. So the first thing each executor got was a small detector per cloud that watches for the interruption notice: the instance metadata endpoint on AWS, Scheduled Events on Azure, the `preempted` metadata value on GCP.
 
 When the notice arrives, the executor starts **draining**:
 
 - it stops asking the queue for new tasks,
 - it keeps working on the tasks it already has,
-- it tells the queue it's terminating, so the queue stops routing work to it and can start moving anything that won't finish in time.
+- it tells the queue it's terminating, so the queue knows not to count on it and can start moving anything that won't finish in time.
 
 When it works, the interruption ends right there. The tasks in flight finish inside the window, nothing new lands on the machine, and the query never notices. The best retry is the one you don't need.
 
@@ -510,7 +510,7 @@ The retry is deliberately best-effort. Some work can't simply be replayed. If th
 
 ## Last, retry the query
 
-The coordinator is the special case. It holds the query's plan, tracks which stages are done, and assembles the result. If the coordinating executor dies, there's nobody left in the cluster who knows what the query was doing. So that case goes all the way up: the planner, which still has the original query, retries it from the top on a healthy executor.
+The coordinator is the special case. It holds the query's plan, tracks which stages are done, and assembles the result. If the coordinating executor dies, there's no executor left that knows what the query was doing. So that case goes all the way up: the planner, which still has the original query, retries it from the top on a healthy executor.
 
 It's the most expensive recovery and the rarest, and that's the right way round.
 
@@ -523,9 +523,9 @@ So executors got a **circuit breaker**. After a call to a dead or terminating ex
 - **critical** calls, where the caller needs the answer, fail fast with a clear error, so the retry logic above can take over,
 - **non-critical** calls, like a status poll or a cleanup, quietly return nothing.
 
-That split mattered more than the breaker itself. The first version was strict about everything, and within days I made it more forgiving, letting the non-critical calls degrade gracefully instead of failing.
+That split mattered more than the breaker itself. The first version treated every call as critical. Within days I added the split.
 
-One more lesson from this stretch: failure handling has a way of calling itself. There was a recovery callback that, a couple of hops later, ended up triggering itself, and it only showed up during real interruptions. If your recovery path can trigger itself, it eventually will.
+One more lesson from this stretch: failure handling has a way of feeding back into itself. There was a recovery callback that, a couple of hops later, ended up triggering itself, and it only showed up during real interruptions. If your recovery path can trigger itself, it eventually will.
 
 ## What I'd tell a team running on spot
 
@@ -546,13 +546,13 @@ Canonical: https://sriv.github.io/notes/one-query-many-clouds/
 
 Most query engines assume that all of their workers sit in one network, close to each other and close to the data. For a lot of organisations that stopped being true a while ago. Data lands in whichever cloud the team that produced it was using. A partner's data sits in their account, not yours. And a lot of the time the reason isn't cost or convenience at all: data residency and sovereignty rules decide which region or country the data may live in, and where it may be processed.
 
-The usual answer is to copy everything into one place first. That works, but it costs egress on every byte, it's always a little out of date, and where residency rules apply it isn't allowed at all.
+The usual answer is to copy everything into one place first. That works, but it costs egress on every byte, it's always a little out of date, and where residency rules apply it often isn't allowed at all.
 
 From May to October 2025 I worked on the other answer: let a single query run across executors in more than one place, and have each part of the query run near the data it reads. Internally we called a group of executors in one location a **fleet**, and a cluster made of several fleets a **hybrid cluster**.
 
 ## The cost model changes
 
-Inside one network, the expensive things in a distributed query are CPU, memory and shuffle. Across clouds there's a new cost that dwarfs the others: bytes that cross the boundary. They're slow, they're billed, and they go over links you don't control.
+Inside one network, the expensive things in a distributed query are CPU, memory and shuffle. Across clouds one cost grows until it dominates: bytes that cross the boundary. They add latency, they're billed at egress rates, and they go over links you don't control.
 
 That one fact, together with the rules about where data may go, shaped almost every decision:
 
@@ -577,14 +577,14 @@ The second piece, from August, was the part I found most interesting. Once stage
 Making it explicit paid off in three ways:
 
 - **The planner can reason about it.** It can push filters and partial aggregates below the remote exchange, and it can tell a plan with one crossing from a plan with three.
-- **You can see it.** When a hybrid query is slow, the first question is "how much crossed the boundary, and when?" The operator's own stats answer that directly.
+- **You can debug it.** When a hybrid query is slow, the first question is "how much crossed the boundary, and when?" The operator's own stats answer that directly.
 - **It can be tested on its own.** The exchange has a clear contract (rows in on one side, the same rows out on the other), and that's much easier to test than behaviour spread across a shuffle.
 
 ## Joins across the boundary
 
 Joins were the hardest case. When the two sides of a join live in different fleets, one side has to travel. It's the classic distributed join question with a much steeper price on the wrong answer:
 
-- **Ship the small side.** If one input is small, build the hash table from it and send that table across, then probe it locally against the big side. This is a broadcast join, with the broadcast going over a cloud link.
+- **Ship the small side.** If one input is small, build the hash table from it and send that table across, then probe it locally against the big side. This is a broadcast join, with the broadcast going over a cloud link. Where residency rules apply, the planner also has to know which side is allowed to travel at all.
 - **Don't ship either side whole if you can avoid it.** Filter and project first, so the side that travels is only the columns and rows the join needs.
 - **Decide with estimates, and be ready to be wrong.** Size estimates are least reliable exactly where they matter most, on filtered intermediate results. A wrong guess here isn't just slow, it's expensive.
 
@@ -598,16 +598,16 @@ Before any of that, executors in different clouds need to reach each other. The 
 - **Each cloud's own peering or VPN** works well within a cloud and less well between clouds, and every pair of providers is a different project.
 - **An overlay network** gives every node a private address that works the same everywhere.
 
-I spent part of September prototyping the third option on [WireGuard](https://www.wireguard.com/). WireGuard suits this kind of problem: it's small, it's fast, it lives in the kernel, and a tunnel between two machines is just a pair of keys and an endpoint. The hard parts aren't the tunnels. They're everything around them: how nodes find each other, how keys are handed out and rotated, and what happens when a node behind a NAT changes address. I'm not going to go into how I handled those, but if you're starting down this road, budget for the control plane, not the data plane.
+I spent part of September prototyping the third option on [WireGuard](https://www.wireguard.com/). WireGuard suits this kind of problem: it's small, it's fast, it's in the Linux kernel, and a tunnel between two machines is just a pair of keys and an endpoint. The hard parts aren't the tunnels. They're everything around them: how nodes find each other, how keys are handed out and rotated, and how two nodes that are both behind NAT reach each other at all. I'm not going to go into how I handled those, but if you're starting down this road, budget for the control plane, not the data plane.
 
 ## Where we went further
 
-Everything above is the textbook version, and you can build it from ideas that are already public. At [e6data](https://www.e6data.com/) we didn't stop at locality. How our scheduler decides where each piece of a hybrid query runs, and what it's willing to move to get there, is the part of that work I'm proudest of. It's also the part I can't write about yet. If the textbook version is hitting its limits in your own cross-cloud setup, keep an eye on what our engineering team writes up.
+Everything above is the textbook version, and you can build it from ideas that are already public. At [e6data](https://www.e6data.com/) we didn't stop at locality. How our scheduler decides where each piece of a hybrid query runs is the part of that work I'm proudest of. It's also the part I can't write about yet. If the textbook version is hitting its limits in your own cross-cloud setup, keep an eye on what our engineering team writes up.
 
 ## What I'd tell a team going hybrid
 
 - **Make egress the first number in your cost model.** Most of the design falls out of taking it seriously.
-- **Put the boundary in the plan.** An explicit operator for "data crosses fleets here" is easier to optimise, observe and test than a property hidden in the shuffle.
+- **Put the boundary in the plan.** An explicit operator for "data crosses fleets here" is easier to optimise, debug and test than a property hidden in the shuffle.
 - **Locality is old; the penalty is just steeper.** Reuse the ideas every distributed engine already has, and tune them for a much steeper cost of getting it wrong.
 - **Expect flaky tests and treat them as signal.** Tests that span fleets fail in ways single-network tests never do. Most of the time they're telling you something true about timing and failure in a real network.
 
@@ -618,9 +618,9 @@ Everything above is the textbook version, and you can build it from ideas that a
 By Srikanth Venugopalan, 25 February 2025. Topics: vectors, file formats.
 Canonical: https://sriv.github.io/notes/blitz-a-file-format-for-vectors/
 
-> Vector search wants a handful of vectors out of millions, at full precision, from storage that charges you per request. No format I tried was built for that, so I wrote a small one that was.
+> Vector search wants a handful of vectors out of millions, at full precision, from storage that charges you per request. None of the formats I tried did that well in my setup, so I wrote a small one that did.
 
-[What I tried and threw away](https://sriv.github.io/notes/what-we-tried-and-threw-away/) ended with a vector database library taken back out of the engine and a decision to write my own format. Three days later, on 6 January, the first version of **Blitz** went in. By the end of February it had the shape it kept. I talked about it at Rootconf in 2025. This is the written version, with a bit more of the reasoning.
+[What I tried and threw away](https://sriv.github.io/notes/what-we-tried-and-threw-away/) ended with a vector database library taken back out of the engine and a decision to write my own format. Three days later, on 6 January, the first commit of **Blitz** landed. By the end of February it had the shape it kept. I talked about it at Rootconf in 2025. This is the written version, with a bit more of the reasoning.
 
 ## What the benchmarks said first
 
@@ -628,12 +628,12 @@ Blitz didn't start as a design. It started as a few weeks of reading and benchma
 
 The test was deliberately plain. Random 1,024-dimension float vectors, a hundred thousand of them and then a million and more, and two workloads: read everything, and fetch a thousand vectors at random. Four candidates:
 
-- **Parquet, as usual.** Fine for reading everything, which is what it's built for.
-- **Parquet, transposed**, so that each vector became its own column and could be read in one contiguous piece. Reads came out roughly sixty times slower than plain Parquet. Worse, at a million vectors neither Parquet layout I'd built could even be opened: the footer outgrew the reader's limit on how large its metadata could be.
-- **Lance**, which was designed with vectors in mind. Its full scans kept up with Parquet. Random fetches through the integration I had at the time were the slowest of the lot at a million vectors. That says more about my integration at the time than about the format itself.
+- **Parquet, as usual.** Fine for reading everything at the smaller sizes, which is what it's built for.
+- **Parquet, transposed**, so that each vector became its own column and could be read in one contiguous piece. Reads came out roughly sixty times slower than plain Parquet. Worse, at a million vectors neither Parquet layout I'd built could even be opened: with the row-group settings I was using, the footer outgrew the reader's limit on how large its metadata could be.
+- **Lance**, which was designed with vectors in mind. Its full scans kept up with Parquet. Random fetches through the integration I had then were the slower of the two formats that still opened at a million vectors. That says more about my integration than about the format.
 - **Avro**, using a sorted key-value file with an index alongside. Random fetches stayed flat from a hundred thousand vectors to two million, because the index points straight at the record. Then I varied how often the index records an entry. Going from every record to every two-thousandth record made random fetches more than a thousand times slower.
 
-Two things from that study ended up in the format almost directly. A footer that grows along the wrong dimension will eventually stop a file from opening, so its growth has to be bounded per file. And for random access, the density of the index is everything: an entry for every record is what keeps a lookup from turning into a scan. Blitz's footer has an entry for every row.
+Two things from that study ended up in the format almost directly. A footer whose size depends on the wrong thing will eventually stop a file from opening. Blitz's footer grows only with the rows of its own data file, which the writer controls. And for random access, the density of the index sets how many bytes each lookup drags in: with an entry every two thousand records, every lookup reads up to two thousand records. Blitz's footer has an entry for every row.
 
 ## What the access pattern looks like
 
@@ -645,9 +645,9 @@ Start from what a vector query actually does. "Find the ten reviews closest to *
 
 Step 1 touches everything but needs very little of each vector. Step 3 needs very little data at all. Only step 2 needs real precision, and only for a handful of vectors.
 
-Now put that on object storage. The cost model there is simple. Every request has a fixed latency and, in most clouds, a price. Bytes are relatively cheap once a request is in flight. A good file format for object storage keeps the number of requests small and makes each one count.
+Now put that on object storage. The cost model there is simple. Every request pays a high first-byte latency and, on the major clouds, a price. Bytes are relatively cheap once a request is in flight. A good file format for object storage keeps the number of requests small and makes each one count.
 
-General-purpose formats are built for a different pattern: scan a lot of rows, a few columns at a time, and compress well along the way. Floating-point embeddings barely compress. Pulling ten specific vectors out of a compressed columnar file means downloading and decoding the whole pages they live in. Nothing in a Parquet file says "row 48,213 starts at byte X".
+General-purpose formats are built for a different pattern: scan a lot of rows, a few columns at a time, and compress well along the way. Floating-point embeddings barely compress. Pulling ten specific vectors out of a compressed columnar file means downloading and decoding the whole pages they live in. Parquet's offset index can tell you which page holds row 48,213 and where that page starts, but not where the row itself starts, so you still fetch and decode the whole page.
 
 ## The design
 
@@ -659,9 +659,9 @@ Blitz has two parts, and the second one is the important one.
 
 - the row's position in the matching data file,
 - the byte offset of that row's vector in the body,
-- a **binary-quantized** copy of the vector, one bit per dimension, as described in that post.
+- a **binary-quantized** copy of the vector, one bit per dimension, as described in [What I tried and threw away](https://sriv.github.io/notes/what-we-tried-and-threw-away/).
 
-The file ends with the footer's own offset in its last eight bytes, the same trick Parquet uses. A reader can always find its way in with one small read at the end of the file.
+The file ends with the footer's offset in its last eight bytes, much like Parquet, which keeps its footer length and a magic number there. A reader can always find its way in with one small read at the end of the file.
 
 There's one Blitz file per data file. That's the decision from [the vectors post](https://sriv.github.io/notes/vectors-inside-a-sql-engine/) carried through: vectors stay aligned with the data they describe, so when a data file is pruned, its vectors go with it.
 
@@ -684,7 +684,7 @@ The arithmetic is what makes it work. A 1,536-dimension embedding is 6 KB at ful
 
 **Put the index in the footer.** The decision a reader has to make comes before any expensive read, so everything needed to make it lives in one place that can be fetched and cached in one go.
 
-**Keep the body boring.** Fixed-size, uncompressed records mean offsets are trivial, reads are exact, and there's nothing to decode. The cleverness belongs in the footer, not in the bytes on disk.
+**Keep the body boring.** Fixed-size, uncompressed records mean every read has an exact, known length, and there's nothing to decode. The cleverness belongs in the footer, not in the bytes on disk.
 
 **Count requests, not bytes.** Sorting and merging nearby ranges before fetching is cheap to do, and on object storage it goes straight at the cost that matters.
 
@@ -695,10 +695,10 @@ The arithmetic is what makes it work. A 1,536-dimension embedding is 6 KB at ful
 It's worth being clear about the edges:
 
 - **The footer grows with the row count.** Every row has an entry, so very large data files mean large footers. That's fine while footers fit comfortably in a cache, and it's the first thing I'd revisit for much larger files.
-- **Recall depends on the first pass.** Binary quantization is a rough estimate. How many candidates survive into the exact pass is the knob that trades recall against reads, and it deserves more attention than a default.
+- **Recall depends on the first pass.** Binary quantization is a rough estimate. The first pass keeps exactly *K* candidates. Keeping a few multiples of *K* would trade more reads for better recall, and that knob deserves more attention than a default.
 - **It's an exact-rerank design, not a graph index.** There's no HNSW-style structure here. For analytical queries that filter first and then rank, that was the right trade. For a pure similarity-search service at very large scale, it might not be.
 
-Blitz went behind a feature flag in March, picked up its own reader and writer tests the same week, and was merged in the summer. The next stretch of work moved from making one machine fast to making many machines cooperate.
+In March Blitz picked up its own reader and writer tests and a feature flag, and it was merged to main in the summer. The next stretch of work moved from making one machine fast to making many machines cooperate.
 
 ---
 
@@ -709,13 +709,13 @@ Canonical: https://sriv.github.io/notes/what-we-tried-and-threw-away/
 
 > Three experiments that didn't make it: virtual threads for the executor, a vector database library, and product quantization. Each one taught me something the successes didn't.
 
-Engineering write-ups tend to read like a list of things that worked. This post is the other list. Over those few months I tried at least three things that never shipped in the form I first built them. I think they're worth writing down, partly because each one changed what we did next, and partly because knowing when to stop is a skill I've had to learn on purpose.
+Engineering write-ups tend to read like a list of things that worked. This post is the other list. Between September 2024 and February 2025 I tried at least three things that never shipped in the form I first built them. I think they're worth writing down, partly because each one changed what we did next, and partly because knowing when to stop is a skill I've had to learn on purpose.
 
 ## Virtual threads for the executor
 
-In September 2024 Java 21's virtual threads were the exciting new thing in the JVM world. Our executor runs a lot of concurrent work on thread pools, so the obvious experiment was to swap the pools' thread factories for virtual threads and see what happened. The change itself was small. I did it on a branch, ran it, and it never went to main.
+In September 2024 Java 21's virtual threads were still the new thing in the JVM world. Our executor runs a lot of concurrent work on thread pools, so the obvious experiment was to swap the pools' thread factories for virtual threads and see what happened. The change itself was small. I did it on a branch, ran it, and it never went to main.
 
-The lesson was about what virtual threads are for. They make *blocking* cheap: a virtual thread waiting on the network or a lock gets parked and its carrier thread goes off to do something else. An executor's pipeline workers mostly aren't waiting. They're decoding Parquet pages and running vectorized operators, which is CPU work. Putting CPU-bound work on virtual threads doesn't make it faster, and on Java 21 it brings its own surprises, such as virtual threads getting pinned to their carrier inside `synchronized` blocks.
+The lesson was about what virtual threads are for. They make *blocking* cheap: a virtual thread waiting on the network or a lock gets parked and its carrier thread goes off to do something else. An executor's pipeline workers mostly aren't waiting. They're decoding Parquet pages and running vectorized operators, which is CPU work. Putting CPU-bound work on virtual threads doesn't make it faster, and it brings its own surprises: virtual threads aren't time-sliced, so long CPU-bound tasks can monopolise the carrier threads, and you lose the pool sizing you were using as back-pressure.
 
 Virtual threads did end up in the codebase later, in exactly the place they suit: the vector loading path, where a thread spends most of its life waiting for an embedding server to reply. Same feature, different job, and that time it was the right call.
 
@@ -727,7 +727,7 @@ When I started on vector search ([the vectors post](https://sriv.github.io/notes
 
 It came out again on 3 January.
 
-That wasn't a verdict on the library. The question I was really asking was "should our engine's scan path depend on this?", and the answer was no. Taking a dependency like that into the core of a query engine means taking on its release cycle, its memory model and its idea of how files should be laid out and read. Our scan path already had strong opinions about all three: per-file alignment with the table's data, our own caching, our own I/O. I'd just spent months teaching the engine to read fewer bytes, and a library that owns its own file layout would have sat outside all of that. What I needed was a format that fit those opinions, and three days after removing the library I started writing one. That's [Blitz](https://sriv.github.io/notes/blitz-a-file-format-for-vectors/).
+That wasn't a verdict on the library. The question I was really asking was "should our engine's scan path depend on this?", and the answer was no. Taking a dependency like that into the core of a query engine means taking on its release cycle, its memory model and its idea of how files should be laid out and read. Our scan path already had strong opinions about memory and layout: per-file alignment with the table's data, our own caching, our own I/O. I'd just spent months teaching the engine to read fewer bytes, and a library that owns its own file layout would have sat outside all of that. What I needed was a format that fit those opinions, and three days after removing the library I started writing one. That's [Blitz](https://sriv.github.io/notes/blitz-a-file-format-for-vectors/).
 
 **What I took from it:** benchmark against the best available option even when you suspect you won't adopt it. It tells you what "good" looks like, and it makes the case for building your own honestly instead of by default.
 
@@ -735,23 +735,23 @@ That wasn't a verdict on the library. The question I was really asking was "shou
 
 The third experiment was about making brute-force vector search cheaper. Exact search reads every candidate vector at full precision. Quantization compresses vectors so the first pass reads far less.
 
-**Product quantization** (PQ) is the classic approach. Split each vector into sub-vectors, run k-means on each slice of the dataset to learn a small codebook, and store each sub-vector as the ID of its nearest codebook entry. You get large compression and decent distance estimates.
+**Product quantization** (PQ) is the classic approach. Split each vector into sub-vectors, run k-means separately on each sub-vector position, across a sample of the data, to learn a small codebook for it, and store each sub-vector as the ID of its nearest codebook entry. You get large compression and decent distance estimates.
 
 In late January I built a PQ prototype on a branch. It never made it to main.
 
-PQ needs **training**. The codebooks are learned from the data, so every table needs a k-means step before its vectors can be compressed, and codebooks drift as data changes. For a search service with one big, stable index that's a fine trade. For an engine where vectors arrive with each new data file, it's an extra build step with its own failure modes and tuning, on the critical path of every load.
+PQ needs **training**. The codebooks are learned from the data, so every table needs a k-means step before its vectors can be compressed, and codebooks go stale as the data changes. For a search service with one big, stable index that's a fine trade. For an engine where vectors arrive with each new data file, it's an extra build step with its own failure modes and tuning, on the critical path of every load.
 
-A week later I tried the much blunter tool, **binary quantization**: keep one bit per dimension, its sign. No training, no codebooks, nothing that drifts. Distances become a Hamming distance, which is an XOR and a population count, about the cheapest thing a CPU can do. The estimates are much rougher than PQ's, so it can't answer a query on its own. But it doesn't need to. It's a first pass that throws away the obviously far vectors, followed by an exact rerank of the survivors at full precision.
+A week later I tried the much blunter tool, **binary quantization**: keep one bit per dimension, its sign. It works best on high-dimensional embeddings centred around zero, and needs no training, no codebooks and nothing that goes stale. Distances become a Hamming distance, which is an XOR and a population count, about the cheapest thing a CPU can do. The estimates are much rougher than PQ's, so it can't answer a query on its own. But it doesn't need to. It's a first pass that throws away the obviously far vectors, followed by an exact rerank of the survivors at full precision.
 
 [Diagram: Product quantization splits a vector into sub-vectors and stores codebook IDs learned with k-means; it compresses well but needs training. Binary quantization keeps only the sign of each dimension; it needs no training and uses XOR and popcount, so it serves as a rough first pass before an exact rerank.]
 
 *Two ways to shrink a vector. The better compressor lost to the one with no training step.*
 
-**What I took from it:** prefer the technique whose costs match the system's shape. PQ is better at compression. Binary quantization was better for an engine that loads data continuously and already knows how to do an exact second pass.
+**What I took from it:** prefer the technique whose costs match the system's shape. PQ gives better distance estimates for the same number of bits. Binary quantization was better for an engine that loads data continuously and already knows how to do an exact second pass.
 
 ## On stopping
 
-None of these were mistakes, and none of them were wasted. Each one ran for weeks at most. Each one lived on a branch until it earned its way into main, and each one changed the next decision: where to use virtual threads, whether to build our own vector format, which quantization to use.
+None of these were mistakes, and none of them were wasted. Each one ran for weeks at most. Each one lived on a branch, where it could fail cheaply, and each one changed the next decision: where to use virtual threads, whether to build our own vector format, which quantization to use.
 
 The pattern I try to follow now is simple. Give an experiment a question to answer, not a feature to ship. When it has answered the question, stop, even if the answer is "no", and write down why. The writing-down part is the one I'm most tempted to skip, and it's the only thing that stops someone, often me, from running the same experiment again a year later.
 
@@ -762,7 +762,7 @@ The pattern I try to follow now is simple. Give an experiment a question to answ
 By Srikanth Venugopalan, 17 December 2024. Topics: vectors.
 Canonical: https://sriv.github.io/notes/vectors-inside-a-sql-engine/
 
-> Everyone was standing up a separate vector database. I tried making similarity search just another thing the query engine could do.
+> Most teams I talked to were standing up a separate vector database. I tried making similarity search just another thing our query engine could do.
 
 At the end of 2024 every conversation about search seemed to start with "which vector database?". The usual shape was a second system next to the warehouse: copy the text out, embed it, load the vectors into a dedicated store, and join the results back to the tables in application code.
 
@@ -772,7 +772,7 @@ We already had an engine that was good at scanning large tables in object storag
 
 The core choice was how a user should see vectors. There were two shapes.
 
-**Vectors as data the user manages.** The table gets an `embedding` column of floats. The user computes embeddings somewhere, writes them in, and queries with distance functions over that column. This is flexible and honest, and it pushes all the hard work back onto the user.
+**Vectors as data the user manages.** The table gets an `embedding` column of floats. The user computes embeddings somewhere, writes them in, and queries with distance functions over that column. This is flexible and simple, and it pushes the hard work back onto the user.
 
 **Vectors as something the engine maintains for a text column.** The user says "make `review_title` searchable". The engine computes embeddings for that column and stores them next to the data. At query time the user writes something like:
 
@@ -803,19 +803,19 @@ The detail that mattered most was keeping vectors aligned with the files they de
 
 The other big decision was not to start with an approximate index.
 
-Most vector databases lead with HNSW or IVF graphs and clusters. They answer "the nearest 10 vectors" without looking at most of them, at the cost of sometimes missing a true neighbour. They're the right tool for a dedicated, latency-sensitive search service.
+Most vector databases lead with an approximate index, such as HNSW graphs or IVF clusters. They answer "the nearest 10 vectors" without looking at most of them, at the cost of sometimes missing a true neighbour. They're the right tool for a dedicated, latency-sensitive search service.
 
 I started with exact search: compute the distance to every candidate vector and keep the best. Three reasons:
 
 - **It's always right.** Exact search is the baseline you measure every approximation against. Starting there meant I'd know exactly what I gave up later.
-- **It composes with SQL.** An approximate index answers "nearest overall". Real queries say "nearest among the reviews from last month with rating under 3". With an exact scan, the filter runs first and the distance is computed only on what's left. Combining filters with approximate indexes is a well-known source of quietly bad results.
+- **It composes with SQL.** A plain approximate index answers "nearest overall". Filtered variants exist, but keeping recall up when the filter is selective is still hard. Real queries say "nearest among the reviews from last month with rating under 3". With an exact scan, the filter runs first and the distance is computed only on what's left. Combining selective filters with approximate indexes is a well-known source of quietly bad results, such as too few rows or missed neighbours.
 - **An analytical engine is good at scans.** Splitting the scan across files and executors, computing distances in vectorized batches, and merging each part's best results is exactly the kind of work the engine already does well.
 
 The cost is obvious: you read every surviving vector. That is fine when filters and pruning have already cut the candidates down, and expensive when they haven't. It set up the next two months of work: making that read as cheap as possible.
 
 ## Where to keep the vectors
 
-The last open question in December was physical: what format should the vectors be stored in? There were three obvious candidates. Parquet, because everything else was Parquet. Avro, because a row-oriented format reads whole vectors in one go. And Lance, a newer columnar format built with vectors in mind.
+The last open question in December was physical: what format should the vectors be stored in? There were three obvious candidates. Parquet, because everything else was Parquet. Avro, because it stores each vector's floats as one simple array, without Parquet's per-element list encoding. And Lance, a newer columnar format built with vectors in mind.
 
 I wrote benchmarks to read embeddings through all three in the engine's own scan path. [What I tried and threw away](https://sriv.github.io/notes/what-we-tried-and-threw-away/) covers why I didn't adopt any of them, and how that led to writing my own format in January.
 
@@ -834,7 +834,7 @@ Canonical: https://sriv.github.io/notes/let-the-queries-build-the-index/
 
 > Most Parquet files don't carry bloom filters, and we didn't control the writers. So the engine started building its own indexes from data it was reading anyway.
 
-[The bloom filter post](https://sriv.github.io/notes/bloom-filters-at-the-scan/) ended on an awkward fact. Bloom filter pruning works well when the Parquet file has bloom filters, and most files don't. Writers leave them off by default, and in a lakehouse the engine reading the table is usually not the system that wrote it.
+[The bloom filter post](https://sriv.github.io/notes/bloom-filters-at-the-scan/) ended on an awkward fact. Bloom filter pruning works well when the Parquet file has bloom filters, and most files don't. Writers leave them off by default, and in a lakehouse the engine reading the table often isn't the system that wrote it.
 
 So the question for the rest of 2024 was: if the files won't carry the index, can the engine build it?
 
@@ -846,7 +846,7 @@ There were two ways to go about it.
 
 **Build it as a side effect of queries.** When a scan reads a column that's used in an equality filter, it has the values in hand anyway. Feed them into a bloom filter as the batch goes past, and store that filter for the next query.
 
-The background indexer is the more conventional design, and it gives predictable query times. But it has to decide what to index before anyone asks, and it spends compute on every table, including the ones nobody queries. It also needs its own scheduling, its own failure handling, and something to tell it which columns matter.
+The background indexer is the more conventional design, and it gives predictable query times. But it has to decide what to index before anyone asks, and unless something tells it otherwise, it spends compute on tables nobody queries. It also needs its own scheduling, its own failure handling, and something to tell it which columns matter.
 
 The lazy approach gets the "which columns" question answered for free: the queries tell you. The first query against a file pays a small indexing cost on top of a read it was doing anyway. Every later query with a filter on that column can skip row groups. Tables nobody queries never get indexed. And there's no new service to run.
 
@@ -864,18 +864,18 @@ Some ways the answer can quietly be "no":
 
 - **The task fails partway.** Half a file's values went into the filter, then the executor ran out of memory. That's what the commit and rollback from the bloom filter post were for. Nothing becomes visible until the task finishes the file cleanly, and a failed task throws its transient filters away.
 - **The query stops early.** This is the one I'm glad I caught. A query with a `LIMIT` can stop reading a file as soon as it has enough rows. Its filter would only contain the values it happened to read before stopping, and a later query looking for a value further down the file would be told "no". So scans that can stop early don't build indexes at all.
-- **Two tasks index the same file at once.** Both build a filter, both try to commit. I made registration first-writer-wins and had a task build the index only if it was the one that registered it, so a slower duplicate couldn't overwrite a finished index.
-- **The batch was already filtered.** If anything removes rows before the builder sees them, say a cheap predicate pushed into the reader, the filter only knows about the survivors. A later query asking for one of the removed values gets a "no". The builder has to see rows before any predicate touches them. This one comes back [when the reader underneath changed](https://sriv.github.io/notes/porting-an-idea-not-the-code/).
-- **The column isn't what its name says.** Tables get columns renamed, and Delta tables can map logical column names to different physical ones. An index keyed on the name a query uses can end up describing the wrong data. We fixed this for mapped columns in August by keying on the physical column.
-- **The filter is sized wrong.** A bloom filter is sized for an expected number of distinct values. Guess too low and it fills up and starts saying "maybe" to everything. That's not a correctness bug, but it quietly turns the feature off. Getting the expected-insertions number right was an early fix.
+- **Two tasks index the same file at once.** Both could build a filter and both try to commit. I made registration first-writer-wins, and only the task that registered a file builds its index, so a slower duplicate can't overwrite a finished one.
+- **The batch was already filtered.** If anything removes rows before the builder sees them, say a cheap predicate pushed into the reader, the filter only knows about the survivors. A later query asking for one of the removed values gets a "no". The builder has to see rows before any predicate, or any delete file, touches them. This one comes back [when the reader underneath changed](https://sriv.github.io/notes/porting-an-idea-not-the-code/).
+- **The column isn't what its name says.** Tables get columns renamed, and Delta tables can map logical column names to different physical ones. An index keyed on the name a query uses can end up describing the wrong data. I fixed this for mapped columns in August by keying on the physical column.
+- **The filter is sized wrong.** A bloom filter is sized for an expected number of distinct values. Guess too low and it fills up and starts saying "maybe" to everything. That's not a correctness bug, but it quietly turns the feature off. Getting the expected number of distinct values right was an early fix.
 
 None of these are exotic. They're the normal life of a scan task in a distributed engine. That's the point: an index built inside the query path inherits every way a query can end badly, and each one needs an answer before you trust the index to skip data.
 
 ## Indexing expressions, not just columns
 
-Users don't always filter on a raw column. A common pattern is something like `WHERE SUBSTRING(order_id, 1, 4) = 'EU01'`, or a `CAST` of a string column to a date. A bloom filter on `order_id` can't answer that, because the stored values aren't the values being compared.
+Users don't always filter on a raw column. A common pattern is something like `WHERE SUBSTRING(order_ref, 1, 4) = 'EU01'`, or a `CAST` of a string column to a date. A bloom filter on `order_ref` can't answer that, because the stored values aren't the values being compared.
 
-In August I extended dynamic indexes to expressions. The scan evaluates the expression, `CAST` or a nested `CAST(SUBSTRING(...))`, on the batch it's already reading, and puts the *results* into the filter. The tricky bit is the key. Two queries that cast the same column to different types must not share an index. So the index key includes a hash of the function and its arguments, not just the column name.
+In August I extended dynamic indexes to expressions. The scan evaluates the expression, `CAST` or a nested `CAST(SUBSTRING(...))`, on the batch it's already reading, and puts the *results* into the filter. The tricky bit is the key. Two queries that cast the same column to different types must not share an index. So the index key includes the expression itself, the function, its arguments and the target type, not just the column name.
 
 This went in behind its own flag. Expression indexes are more useful and more dangerous than column indexes, and I wanted to turn them on separately.
 
@@ -891,16 +891,16 @@ So I made them persistent:
 
 That last point is the bloom filter post's default doing its job again. A slow or failed index load can't make a query wrong, only temporarily slower. The load has a timeout so one stuck read can't hold up the rest.
 
-The in-memory store also needed a budget. Bloom filters for a big table add up. I made the store bounded, by entry count or by memory, switchable per deployment, so the index can never become the thing that takes an executor down. A colleague later added a guard that decides whether to index at all based on table size.
+The in-memory store also needed a budget. Bloom filters for a big table add up. I made the store bounded, by entry count or by memory, switchable per deployment, so the index store can't grow until it takes an executor down. A colleague later added a guard that decides whether to index at all based on table size.
 
 ## What I'd tell a team starting on this
 
 - **Decide who pays.** Lazy indexing makes the first query pay and rewards the rest. Make that trade on purpose, and write it down, because someone will eventually ask why the first query after a deploy is slow.
 - **List every way a scan can end early or partially.** Failure, cancellation, `LIMIT`, sampling, retries. Each one is a way to commit an incomplete index. If your engine adds a new one later, it needs an answer too.
 - **Every new kind of index gets its own switch.** Column indexes, expression indexes and persistence each went in behind their own flag, off by default. Shipping them separately meant a problem in one never forced us to turn off the others.
-- **Build the debugging tools early.** By December I could dump the index metadata, and write an executor's index to object storage on demand. When someone asks "why didn't this query prune?", being able to look at the index beats guessing.
+- **Build the debugging tools early.** By December I could dump the index metadata and write an executor's index to object storage on demand. When someone asks "why didn't this query prune?", being able to look at the index beats guessing.
 
-By the end of the year the engine had indexes it built itself, that survived restarts, and that we trusted. Around the same time a very different kind of column was arriving: vectors. That's [vectors inside a SQL engine](https://sriv.github.io/notes/vectors-inside-a-sql-engine/).
+By the end of the year the engine had indexes that it built itself, that survived restarts, and that we trusted. Around the same time a very different kind of column was arriving: vectors. That's [vectors inside a SQL engine](https://sriv.github.io/notes/vectors-inside-a-sql-engine/).
 
 ---
 
@@ -911,9 +911,9 @@ Canonical: https://sriv.github.io/notes/bloom-filters-at-the-scan/
 
 > Parquet already knows how to say \"this value isn't here\". Getting an engine to ask cheaply, and to never trust a wrong answer, was the actual work.
 
-[The cheapest row is the one you never read](https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/) ended on point lookups: `WHERE order_id = 42` on a big table, where min/max statistics are useless because every row group spans the whole range of IDs. In July 2024 that was the first thing I went after.
+[The cheapest row is the one you never read](https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/) ended on point lookups: `WHERE order_id = 42` on a big table, where min/max statistics are useless because the IDs aren't clustered and every row group spans nearly the whole range. In July 2024 that was the first thing I went after.
 
-Parquet has an answer to this built in. A writer can store a **bloom filter** for a column in each row group. Ask it "could 42 be in this row group?" and it says either "no" or "maybe". If it says no, it's right. If it says maybe, it's right most of the time, and the rest of the time you pay for a read that finds nothing.
+Parquet has an answer to this built in. A writer can store a **bloom filter** for a column in each row group. Ask it "could 42 be in this row group?" and it says either "no" or "maybe". If it says no, it's right. If it says maybe, the value might be there. For a row group that doesn't contain it, the filter says maybe only at its false-positive rate, often set around 1%, and then you pay for a read that finds nothing.
 
 That's exactly the "maybe, never a wrong no" shape from [the cheapest row](https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/). On paper, the job was small: read the bloom filter, ask it, skip the row group on a "no". The bloom filter turned out to be the easy part.
 
@@ -923,23 +923,23 @@ The first decision was where in the scan to ask the question. There are two natu
 
 **Per row group, inside the reader.** The reader has the footer, so it knows where each row group's bloom filter lives. Before fetching a row group's column chunks, read the bloom for the filter column, test the value, skip on "no". This is simple and local, and it saves the expensive part: the column chunk fetch, decompression and decode.
 
-**Per file, before the task is handed out.** If every row group in a file says "no", the whole file can go. Doing that before the scan task is created saves even more: no task, no footer read on the executor, nothing.
+**Per file, before the task is handed out.** If every row group in a file says "no", the whole file can go. Doing that before the scan task is created saves even more: no task and no column data fetched. But it still needs the footer and the bloom filters, so it only pays once they're cached where the planning happens.
 
 [Diagram: Each row group's bloom filter answers no or maybe for order_id = 42. "No" row groups are skipped; "maybe" row groups are read, sometimes for nothing. Bloom filters are cached in an index store where a missing entry means maybe.]
 
 *Asking each row group's bloom filter before fetching its data. A "no" is final; a "maybe" costs a read.*
 
-I did the first one first, because it was self-contained and easy to test, and then added the second one in the part-file pruning step once the first was trustworthy. The two share everything except where they sit. That turned out to matter more than which one was "right", because the piece they share became the most important part of the design.
+I did the first one first, because it was self-contained and easy to test, and then added the second one in the file-pruning step once the first was trustworthy. The two share everything except where they sit. That turned out to matter more than which one was "right", because the piece they share became the most important part of the design.
 
 ## The bloom filter is a network read
 
-Here's what the paper version leaves out. On object storage, reading the bloom filter is itself a remote read. It's small, a few kilobytes to a few hundred kilobytes per column per row group, but it is still a GET with its own latency. For a file with many row groups, asking every bloom filter on every query can cost a noticeable fraction of what you were trying to save.
+Here's what the paper version leaves out. On object storage, reading the bloom filter is itself a remote read. It's small, from a few kilobytes up to around a megabyte per column per row group, but it is still a GET with its own latency. For a file with many row groups, asking every bloom filter on every query can cost a noticeable fraction of what you were trying to save.
 
-I spent a while on this, including reading the bloom filters as one batch of vectored ranges instead of one after another. Either way, the real fix was not to read them again at all. Data files in an Iceberg or Delta table are immutable: a path, once written, never changes, and compaction writes new files rather than rewriting old ones. So a bloom filter read once is good for as long as the file exists. (Plain directory-based tables can rewrite a file in place, which is a good reason to put the file's size or modification time into the cache key as well.)
+I spent a while on this, including reading the bloom filters as one batch of vectored ranges instead of one after another. Batching helped, but the real fix was not to read them again at all. Data files in an Iceberg or Delta table are immutable: a path, once written, never changes, and compaction writes new files rather than rewriting old ones. So a bloom filter read once is good for as long as the file exists. (Plain directory-based tables can rewrite a file in place, which is a good reason to put the file's size or modification time into the cache key as well.)
 
 So I put a cache in front of the reader: in-process, keyed by file, row group and column, holding the bloom filters already read. I called it the **index store**, because I already suspected it would end up holding more than Parquet's own filters. The first query against a file pays for the bloom reads. Every query after that asks the cache.
 
-The store also has a default that I think is the most important line in the whole feature. If there is no entry for a key, the answer is "maybe". A missing index never prunes anything. It just means you read the data, the same as before the feature existed.
+The store also has a default that I think is the most important line in the whole feature. If a lookup finds no entry for a key, it doesn't go and fetch one. The answer is "maybe". A missing index never prunes anything. It just means you read the data, the same as before the feature existed.
 
 ## A bug that proved the default
 
@@ -968,7 +968,7 @@ Two things from that month that I still apply:
 - **Make "unknown" the safe answer.** Any structure that can skip work should treat missing or broken metadata as "read it". Then bugs show up in latency graphs rather than in someone's quarterly numbers.
 - **Price the metadata read.** On object storage, metadata isn't free. Cache anything immutable, and measure how much time goes into asking the index before celebrating what the index saves.
 
-There was one more lesson that set up what came next. Most Parquet files in the wild don't have bloom filters at all. Common writers leave them off by default, and you rarely control the writer. If we wanted bloom-filter pruning on the tables people actually had, the engine would have to build the filters itself, from the data it was already reading.
+There was one more lesson that set up what came next. Most of the Parquet files we met didn't have bloom filters at all. Common writers leave them off by default, and you rarely control the writer. If we wanted bloom-filter pruning on the tables people actually had, the engine would have to build the filters itself, from the data it was already reading.
 
 That's [letting the queries build the index](https://sriv.github.io/notes/let-the-queries-build-the-index/).
 
@@ -979,7 +979,7 @@ That's [letting the queries build the index](https://sriv.github.io/notes/let-th
 By Srikanth Venugopalan, 31 May 2024. Topics: engines, pruning.
 Canonical: https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/
 
-> Before indexes, vectors or distributed anything, I had to learn where a query engine actually spends its time. The answer: reading things it didn't need.
+> Before indexes, vectors or distributed anything, I had to learn where our query engine actually spent its time. The answer: reading things it didn't need.
 
 At the end of May 2024 I moved onto the execution side of our query engine. It's a pipelined, vectorized engine written in Java that runs SQL over Parquet files sitting in object storage. I'd used engines like this for years. I had never had to make one faster.
 
@@ -997,7 +997,7 @@ Data moves through a pipeline in **batches**. Each batch is a set of column vect
 
 *The scan, top to bottom. Every step down is more work spent on rows the filter may throw away.*
 
-The scan sits at the bottom of every pipeline, and on a lakehouse it does a lot more than "read a file". For a Parquet file on S3 it has to:
+The scan sits at the bottom of every leaf pipeline, and on a lakehouse it does a lot more than "read a file". For a Parquet file on S3 it has to:
 
 1. work out which files belong to the query (table metadata, partitions),
 2. read each file's footer to find the row groups and column chunks,
@@ -1010,16 +1010,16 @@ Every step costs something, and the cost compounds. A row you reject at step 1 c
 
 ## The ladder of skipping
 
-Once you see the scan this way, the question changes from "how do I make the filter faster?" to "how early can I find out that I don't need this data?" Engines answer it with a ladder of increasingly fine-grained structures:
+Once you see the scan this way, the question changes from "how do I make the filter faster?" to "how early can I find out that I don't need this data?" Engines answer it with a ladder of increasingly fine-grained checks:
 
 - **Partition pruning.** If the table is partitioned by day and the query asks for one day, skip every other day. Free, but only helps queries that filter on the partition column.
-- **File and row-group statistics.** Parquet keeps min/max values per column per row group. If the query wants `amount > 1000` and a row group's max is 400, skip it without reading a byte of data.
+- **File and row-group statistics.** Iceberg manifests and the Delta log keep min/max values per column per file, and Parquet writers usually store them per column per row group. If the query wants `amount > 1000` and a row group's max is 400, skip it without reading a byte of data.
 - **Page-level indexes.** The same idea, one level down.
 - **Late materialization.** Read and filter the predicate column first, then fetch the other columns only for the rows that survived.
 
-Each rung is cheaper than the one below it, and each one is useless for some query shape. Min/max statistics are the clearest example. They work beautifully on columns where values cluster, like timestamps in an append-only table. They do almost nothing for a column like `user_id` or `order_id`, where every row group contains a spread of values from the smallest to the largest. The min is small, the max is large, and every row group "might" contain the value you're looking for.
+Each rung is cheaper than the one below it, and each one is useless for some query shape. Min/max statistics are the clearest example. They work beautifully on columns where values cluster, like timestamps in an append-only table. They do almost nothing for a column like `user_id` or a UUID, where values arrive in no particular order and every row group ends up with a spread from the smallest to the largest. The min is small, the max is large, and every row group "might" contain the value you're looking for.
 
-A lot of real queries are exactly that shape: find this customer, this order, this session. Point lookups on high-cardinality columns are where min/max pruning falls over and where the engine ends up reading close to the whole table to return a handful of rows.
+A lot of real queries are exactly that shape: find this customer, this order, this session. Point lookups on high-cardinality columns that the table isn't sorted or clustered by are where min/max pruning falls over and where the engine ends up reading close to the whole table to return a handful of rows.
 
 ## The decision: skip before you speed up
 
@@ -1038,7 +1038,7 @@ The trade-off is that every skipping structure you add is something else to buil
 
 A pruning structure is allowed to be imprecise in one direction only. It can say "this row group *might* have matching rows" when it doesn't. That costs you a wasted read, nothing more. It must never say "this row group has no matching rows" when it does, because then the query silently returns the wrong answer.
 
-Bloom filters fit this naturally. A bloom filter gives false positives but no false negatives. Min/max statistics fit it too, as long as they're computed correctly. Where it gets dangerous is anything the engine builds or caches for itself, because now the engine is responsible for keeping that structure in step with the data. A stale index that says "no" after new data lands is the worst kind of database bug: nothing crashes, the numbers are just wrong.
+Bloom filters fit this naturally. A bloom filter gives false positives but no false negatives. Min/max statistics fit it too, as long as they're computed correctly. Where it gets dangerous is anything the engine builds or caches for itself, because now the engine is responsible for keeping that structure in step with the data. An index that says "no" about data it never saw is the worst kind of database bug: nothing crashes, the numbers are just wrong.
 
 Every design in the other notes had to survive that rule first and be fast second.
 

@@ -24,9 +24,9 @@ Everything else was rewritten from scratch, and it should have been. The Java im
 
 DataFusion is built to be extended, and the most useful decision in the port was to lean on that instead of fighting it.
 
-DataFusion already knows how to prune Parquet row groups. Given a query's filter, it builds a **pruning predicate**, then asks a statistics provider for the min, max and null counts of each row group and works out which row groups can't possibly match. The provider is an interface. DataFusion ships one that reads the Parquet footer, but nothing stops you from supplying your own.
+DataFusion already knows how to prune Parquet row groups. Given a query's filter, it builds a **pruning predicate**, then asks a statistics provider for each row group's min, max, null and row counts, and whether it could contain a given set of values and works out which row groups can't possibly match. The provider is an interface. DataFusion ships one that reads the Parquet footer, but nothing stops you from supplying your own.
 
-So the dynamic index became exactly that: a statistics provider backed by our index store. Our code answers "what's the min and max of this column in row group 3 of this file?", or "I don't know", and DataFusion's existing logic does the rest: `AND`, `OR`, `IN`, ranges, negation, all of it. In the Java engine I'd written and tested that predicate logic myself. Here I got it for free, along with everyone else's bug fixes.
+So the dynamic index became exactly that: a statistics provider backed by our index store. Our code answers "what's the min and max of this column in row group 3 of this file?", "could it contain 42?", or "I don't know", and DataFusion's existing logic does the rest: `AND`, `OR`, `IN`, ranges and the common forms of negation, and anything it can't rewrite becomes "maybe". In the Java engine I'd written and tested that predicate logic myself. Here I got it for free, along with everyone else's bug fixes.
 
 The other half was the scan itself. Rather than fork DataFusion's Parquet source, I wrapped it: our source holds the stock one and passes every call through, except opening a file, where it narrows the list of row groups to read before handing over. My first cut copied more of the stock source than it needed to. The rewrite later that day was mostly deleting those copies and passing calls through.
 
@@ -34,7 +34,7 @@ The other half was the scan itself. Rather than fork DataFusion's Parquet source
 
 *Cheapest check first. DataFusion does the predicate logic; the dynamic index only has to answer questions about row groups.*
 
-The order of the checks matters. Our index lives in memory, so it goes first. The footer statistics come next, since the footer has already been read. Parquet's own bloom filters are last, because checking them means fetching more bytes. Each check only sees the row groups the cheaper ones before it let through.
+The order of the checks matters. Our index lives in memory, so it goes first. The footer statistics come next, since the footer has already been read. Parquet's own bloom filters come after that, because checking them means fetching more bytes, and page-index pruning after them. Each check only sees the row groups the cheaper ones before it let through.
 
 ## The filter that moved
 
@@ -42,7 +42,7 @@ This is where the port taught me something about the original.
 
 In the Java engine, the scan decoded a row group into batches and a separate filter operator dropped rows afterwards. Whatever the scan produced was the whole row group. Building an index from it was safe almost by accident, because nothing upstream had thrown rows away.
 
-DataFusion can push filters down into the Parquet reader itself, so rows that don't match are dropped *while* decoding. That's a real performance win, and you want it on. It also means the batches that come out of the scan are no longer the row group. They're the part of the row group the current query cared about. Build a min/max or a bloom filter from that, and you've built an index that will confidently say "no" to values that are sitting right there in the file.
+DataFusion can drop rows inside the Parquet reader itself: filter pushdown evaluates predicates while decoding, and page-index pruning skips whole pages before decoding starts. That's a real performance win, and you want it on. It also means the batches that come out of the scan are no longer the row group. They're the part of the row group the current query cared about. Build a min/max or a bloom filter from that, and you've built an index that will confidently say "no" to values that are sitting right there in the file.
 
 In Java this rule had been met by the shape of the engine. In Rust it had to be enforced deliberately: an index is only kept when we know it was built from the whole row group, and anything less is discarded. I won't go into the mechanism here. The important part is being able to name the rule. Once you can say "never keep an index built from a partial view", a whole class of bugs becomes something you check for rather than something you stumble into.
 
@@ -53,8 +53,8 @@ The first Rust version fed values into a bloom filter with a separate branch for
 That one change removed a surprising amount of code:
 
 - **No type-specific logic.** Integers, strings, dates and decimals all go through the same filter once they're hashed.
-- **Uniform size.** Every filter for a given expected row count is the same size, which makes memory accounting predictable.
-- **Mergeable.** Two filters of the same size combine with a bitwise OR, so filters built in pieces can be joined without going back to the data.
+- **Uniform size.** Every filter for a given expected row count and false-positive rate is the same size, which makes memory accounting predictable.
+- **Mergeable.** Two filters of the same size and hash scheme combine with a bitwise OR, so filters built in pieces can be joined without going back to the data.
 
 The one thing to be careful of is that the hash has to be stable and has to agree between the side that builds the filter and the side that probes it. Hash `5` as an `INT` when you build the filter, probe it with the `BIGINT` literal the query planner produced, and you get a wrong "no". It's the same bug from [the bloom filter post](https://sriv.github.io/notes/bloom-filters-at-the-scan/) in different clothes.
 

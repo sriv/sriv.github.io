@@ -3,9 +3,9 @@
 By Srikanth Venugopalan, 25 February 2025. Topics: vectors, file formats.
 Canonical: https://sriv.github.io/notes/blitz-a-file-format-for-vectors/
 
-> Vector search wants a handful of vectors out of millions, at full precision, from storage that charges you per request. No format I tried was built for that, so I wrote a small one that was.
+> Vector search wants a handful of vectors out of millions, at full precision, from storage that charges you per request. None of the formats I tried did that well in my setup, so I wrote a small one that did.
 
-[What I tried and threw away](https://sriv.github.io/notes/what-we-tried-and-threw-away/) ended with a vector database library taken back out of the engine and a decision to write my own format. Three days later, on 6 January, the first version of **Blitz** went in. By the end of February it had the shape it kept. I talked about it at Rootconf in 2025. This is the written version, with a bit more of the reasoning.
+[What I tried and threw away](https://sriv.github.io/notes/what-we-tried-and-threw-away/) ended with a vector database library taken back out of the engine and a decision to write my own format. Three days later, on 6 January, the first commit of **Blitz** landed. By the end of February it had the shape it kept. I talked about it at Rootconf in 2025. This is the written version, with a bit more of the reasoning.
 
 ## What the benchmarks said first
 
@@ -13,12 +13,12 @@ Blitz didn't start as a design. It started as a few weeks of reading and benchma
 
 The test was deliberately plain. Random 1,024-dimension float vectors, a hundred thousand of them and then a million and more, and two workloads: read everything, and fetch a thousand vectors at random. Four candidates:
 
-- **Parquet, as usual.** Fine for reading everything, which is what it's built for.
-- **Parquet, transposed**, so that each vector became its own column and could be read in one contiguous piece. Reads came out roughly sixty times slower than plain Parquet. Worse, at a million vectors neither Parquet layout I'd built could even be opened: the footer outgrew the reader's limit on how large its metadata could be.
-- **Lance**, which was designed with vectors in mind. Its full scans kept up with Parquet. Random fetches through the integration I had at the time were the slowest of the lot at a million vectors. That says more about my integration at the time than about the format itself.
+- **Parquet, as usual.** Fine for reading everything at the smaller sizes, which is what it's built for.
+- **Parquet, transposed**, so that each vector became its own column and could be read in one contiguous piece. Reads came out roughly sixty times slower than plain Parquet. Worse, at a million vectors neither Parquet layout I'd built could even be opened: with the row-group settings I was using, the footer outgrew the reader's limit on how large its metadata could be.
+- **Lance**, which was designed with vectors in mind. Its full scans kept up with Parquet. Random fetches through the integration I had then were the slower of the two formats that still opened at a million vectors. That says more about my integration than about the format.
 - **Avro**, using a sorted key-value file with an index alongside. Random fetches stayed flat from a hundred thousand vectors to two million, because the index points straight at the record. Then I varied how often the index records an entry. Going from every record to every two-thousandth record made random fetches more than a thousand times slower.
 
-Two things from that study ended up in the format almost directly. A footer that grows along the wrong dimension will eventually stop a file from opening, so its growth has to be bounded per file. And for random access, the density of the index is everything: an entry for every record is what keeps a lookup from turning into a scan. Blitz's footer has an entry for every row.
+Two things from that study ended up in the format almost directly. A footer whose size depends on the wrong thing will eventually stop a file from opening. Blitz's footer grows only with the rows of its own data file, which the writer controls. And for random access, the density of the index sets how many bytes each lookup drags in: with an entry every two thousand records, every lookup reads up to two thousand records. Blitz's footer has an entry for every row.
 
 ## What the access pattern looks like
 
@@ -30,9 +30,9 @@ Start from what a vector query actually does. "Find the ten reviews closest to *
 
 Step 1 touches everything but needs very little of each vector. Step 3 needs very little data at all. Only step 2 needs real precision, and only for a handful of vectors.
 
-Now put that on object storage. The cost model there is simple. Every request has a fixed latency and, in most clouds, a price. Bytes are relatively cheap once a request is in flight. A good file format for object storage keeps the number of requests small and makes each one count.
+Now put that on object storage. The cost model there is simple. Every request pays a high first-byte latency and, on the major clouds, a price. Bytes are relatively cheap once a request is in flight. A good file format for object storage keeps the number of requests small and makes each one count.
 
-General-purpose formats are built for a different pattern: scan a lot of rows, a few columns at a time, and compress well along the way. Floating-point embeddings barely compress. Pulling ten specific vectors out of a compressed columnar file means downloading and decoding the whole pages they live in. Nothing in a Parquet file says "row 48,213 starts at byte X".
+General-purpose formats are built for a different pattern: scan a lot of rows, a few columns at a time, and compress well along the way. Floating-point embeddings barely compress. Pulling ten specific vectors out of a compressed columnar file means downloading and decoding the whole pages they live in. Parquet's offset index can tell you which page holds row 48,213 and where that page starts, but not where the row itself starts, so you still fetch and decode the whole page.
 
 ## The design
 
@@ -44,9 +44,9 @@ Blitz has two parts, and the second one is the important one.
 
 - the row's position in the matching data file,
 - the byte offset of that row's vector in the body,
-- a **binary-quantized** copy of the vector, one bit per dimension, as described in that post.
+- a **binary-quantized** copy of the vector, one bit per dimension, as described in [What I tried and threw away](https://sriv.github.io/notes/what-we-tried-and-threw-away/).
 
-The file ends with the footer's own offset in its last eight bytes, the same trick Parquet uses. A reader can always find its way in with one small read at the end of the file.
+The file ends with the footer's offset in its last eight bytes, much like Parquet, which keeps its footer length and a magic number there. A reader can always find its way in with one small read at the end of the file.
 
 There's one Blitz file per data file. That's the decision from [the vectors post](https://sriv.github.io/notes/vectors-inside-a-sql-engine/) carried through: vectors stay aligned with the data they describe, so when a data file is pruned, its vectors go with it.
 
@@ -69,7 +69,7 @@ The arithmetic is what makes it work. A 1,536-dimension embedding is 6 KB at ful
 
 **Put the index in the footer.** The decision a reader has to make comes before any expensive read, so everything needed to make it lives in one place that can be fetched and cached in one go.
 
-**Keep the body boring.** Fixed-size, uncompressed records mean offsets are trivial, reads are exact, and there's nothing to decode. The cleverness belongs in the footer, not in the bytes on disk.
+**Keep the body boring.** Fixed-size, uncompressed records mean every read has an exact, known length, and there's nothing to decode. The cleverness belongs in the footer, not in the bytes on disk.
 
 **Count requests, not bytes.** Sorting and merging nearby ranges before fetching is cheap to do, and on object storage it goes straight at the cost that matters.
 
@@ -80,7 +80,7 @@ The arithmetic is what makes it work. A 1,536-dimension embedding is 6 KB at ful
 It's worth being clear about the edges:
 
 - **The footer grows with the row count.** Every row has an entry, so very large data files mean large footers. That's fine while footers fit comfortably in a cache, and it's the first thing I'd revisit for much larger files.
-- **Recall depends on the first pass.** Binary quantization is a rough estimate. How many candidates survive into the exact pass is the knob that trades recall against reads, and it deserves more attention than a default.
+- **Recall depends on the first pass.** Binary quantization is a rough estimate. The first pass keeps exactly *K* candidates. Keeping a few multiples of *K* would trade more reads for better recall, and that knob deserves more attention than a default.
 - **It's an exact-rerank design, not a graph index.** There's no HNSW-style structure here. For analytical queries that filter first and then rank, that was the right trade. For a pure similarity-search service at very large scale, it might not be.
 
-Blitz went behind a feature flag in March, picked up its own reader and writer tests the same week, and was merged in the summer. The next stretch of work moved from making one machine fast to making many machines cooperate.
+In March Blitz picked up its own reader and writer tests and a feature flag, and it was merged to main in the summer. The next stretch of work moved from making one machine fast to making many machines cooperate.

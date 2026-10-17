@@ -5,9 +5,9 @@ Canonical: https://sriv.github.io/notes/bloom-filters-at-the-scan/
 
 > Parquet already knows how to say \"this value isn't here\". Getting an engine to ask cheaply, and to never trust a wrong answer, was the actual work.
 
-[The cheapest row is the one you never read](https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/) ended on point lookups: `WHERE order_id = 42` on a big table, where min/max statistics are useless because every row group spans the whole range of IDs. In July 2024 that was the first thing I went after.
+[The cheapest row is the one you never read](https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/) ended on point lookups: `WHERE order_id = 42` on a big table, where min/max statistics are useless because the IDs aren't clustered and every row group spans nearly the whole range. In July 2024 that was the first thing I went after.
 
-Parquet has an answer to this built in. A writer can store a **bloom filter** for a column in each row group. Ask it "could 42 be in this row group?" and it says either "no" or "maybe". If it says no, it's right. If it says maybe, it's right most of the time, and the rest of the time you pay for a read that finds nothing.
+Parquet has an answer to this built in. A writer can store a **bloom filter** for a column in each row group. Ask it "could 42 be in this row group?" and it says either "no" or "maybe". If it says no, it's right. If it says maybe, the value might be there. For a row group that doesn't contain it, the filter says maybe only at its false-positive rate, often set around 1%, and then you pay for a read that finds nothing.
 
 That's exactly the "maybe, never a wrong no" shape from [the cheapest row](https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/). On paper, the job was small: read the bloom filter, ask it, skip the row group on a "no". The bloom filter turned out to be the easy part.
 
@@ -17,23 +17,23 @@ The first decision was where in the scan to ask the question. There are two natu
 
 **Per row group, inside the reader.** The reader has the footer, so it knows where each row group's bloom filter lives. Before fetching a row group's column chunks, read the bloom for the filter column, test the value, skip on "no". This is simple and local, and it saves the expensive part: the column chunk fetch, decompression and decode.
 
-**Per file, before the task is handed out.** If every row group in a file says "no", the whole file can go. Doing that before the scan task is created saves even more: no task, no footer read on the executor, nothing.
+**Per file, before the task is handed out.** If every row group in a file says "no", the whole file can go. Doing that before the scan task is created saves even more: no task and no column data fetched. But it still needs the footer and the bloom filters, so it only pays once they're cached where the planning happens.
 
 [Diagram: Each row group's bloom filter answers no or maybe for order_id = 42. "No" row groups are skipped; "maybe" row groups are read, sometimes for nothing. Bloom filters are cached in an index store where a missing entry means maybe.]
 
 *Asking each row group's bloom filter before fetching its data. A "no" is final; a "maybe" costs a read.*
 
-I did the first one first, because it was self-contained and easy to test, and then added the second one in the part-file pruning step once the first was trustworthy. The two share everything except where they sit. That turned out to matter more than which one was "right", because the piece they share became the most important part of the design.
+I did the first one first, because it was self-contained and easy to test, and then added the second one in the file-pruning step once the first was trustworthy. The two share everything except where they sit. That turned out to matter more than which one was "right", because the piece they share became the most important part of the design.
 
 ## The bloom filter is a network read
 
-Here's what the paper version leaves out. On object storage, reading the bloom filter is itself a remote read. It's small, a few kilobytes to a few hundred kilobytes per column per row group, but it is still a GET with its own latency. For a file with many row groups, asking every bloom filter on every query can cost a noticeable fraction of what you were trying to save.
+Here's what the paper version leaves out. On object storage, reading the bloom filter is itself a remote read. It's small, from a few kilobytes up to around a megabyte per column per row group, but it is still a GET with its own latency. For a file with many row groups, asking every bloom filter on every query can cost a noticeable fraction of what you were trying to save.
 
-I spent a while on this, including reading the bloom filters as one batch of vectored ranges instead of one after another. Either way, the real fix was not to read them again at all. Data files in an Iceberg or Delta table are immutable: a path, once written, never changes, and compaction writes new files rather than rewriting old ones. So a bloom filter read once is good for as long as the file exists. (Plain directory-based tables can rewrite a file in place, which is a good reason to put the file's size or modification time into the cache key as well.)
+I spent a while on this, including reading the bloom filters as one batch of vectored ranges instead of one after another. Batching helped, but the real fix was not to read them again at all. Data files in an Iceberg or Delta table are immutable: a path, once written, never changes, and compaction writes new files rather than rewriting old ones. So a bloom filter read once is good for as long as the file exists. (Plain directory-based tables can rewrite a file in place, which is a good reason to put the file's size or modification time into the cache key as well.)
 
 So I put a cache in front of the reader: in-process, keyed by file, row group and column, holding the bloom filters already read. I called it the **index store**, because I already suspected it would end up holding more than Parquet's own filters. The first query against a file pays for the bloom reads. Every query after that asks the cache.
 
-The store also has a default that I think is the most important line in the whole feature. If there is no entry for a key, the answer is "maybe". A missing index never prunes anything. It just means you read the data, the same as before the feature existed.
+The store also has a default that I think is the most important line in the whole feature. If a lookup finds no entry for a key, it doesn't go and fetch one. The answer is "maybe". A missing index never prunes anything. It just means you read the data, the same as before the feature existed.
 
 ## A bug that proved the default
 
@@ -62,6 +62,6 @@ Two things from that month that I still apply:
 - **Make "unknown" the safe answer.** Any structure that can skip work should treat missing or broken metadata as "read it". Then bugs show up in latency graphs rather than in someone's quarterly numbers.
 - **Price the metadata read.** On object storage, metadata isn't free. Cache anything immutable, and measure how much time goes into asking the index before celebrating what the index saves.
 
-There was one more lesson that set up what came next. Most Parquet files in the wild don't have bloom filters at all. Common writers leave them off by default, and you rarely control the writer. If we wanted bloom-filter pruning on the tables people actually had, the engine would have to build the filters itself, from the data it was already reading.
+There was one more lesson that set up what came next. Most of the Parquet files we met didn't have bloom filters at all. Common writers leave them off by default, and you rarely control the writer. If we wanted bloom-filter pruning on the tables people actually had, the engine would have to build the filters itself, from the data it was already reading.
 
 That's [letting the queries build the index](https://sriv.github.io/notes/let-the-queries-build-the-index/).

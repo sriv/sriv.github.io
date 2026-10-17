@@ -10,13 +10,13 @@ dek: "When the data lives in more than one place, you can move the data to the q
 
 Most query engines assume that all of their workers sit in one network, close to each other and close to the data. For a lot of organisations that stopped being true a while ago. Data lands in whichever cloud the team that produced it was using. A partner's data sits in their account, not yours. And a lot of the time the reason isn't cost or convenience at all: data residency and sovereignty rules decide which region or country the data may live in, and where it may be processed.
 
-The usual answer is to copy everything into one place first. That works, but it costs egress on every byte, it's always a little out of date, and where residency rules apply it isn't allowed at all.
+The usual answer is to copy everything into one place first. That works, but it costs egress on every byte, it's always a little out of date, and where residency rules apply it often isn't allowed at all.
 
 From May to October 2025 I worked on the other answer: let a single query run across executors in more than one place, and have each part of the query run near the data it reads. Internally we called a group of executors in one location a **fleet**, and a cluster made of several fleets a **hybrid cluster**.
 
 ## The cost model changes
 
-Inside one network, the expensive things in a distributed query are CPU, memory and shuffle. Across clouds there's a new cost that dwarfs the others: bytes that cross the boundary. They're slow, they're billed, and they go over links you don't control.
+Inside one network, the expensive things in a distributed query are CPU, memory and shuffle. Across clouds one cost grows until it dominates: bytes that cross the boundary. They add latency, they're billed at egress rates, and they go over links you don't control.
 
 That one fact, together with the rules about where data may go, shaped almost every decision:
 
@@ -39,14 +39,14 @@ The second piece, from August, was the part I found most interesting. Once stage
 Making it explicit paid off in three ways:
 
 - **The planner can reason about it.** It can push filters and partial aggregates below the remote exchange, and it can tell a plan with one crossing from a plan with three.
-- **You can see it.** When a hybrid query is slow, the first question is "how much crossed the boundary, and when?" The operator's own stats answer that directly.
+- **You can debug it.** When a hybrid query is slow, the first question is "how much crossed the boundary, and when?" The operator's own stats answer that directly.
 - **It can be tested on its own.** The exchange has a clear contract (rows in on one side, the same rows out on the other), and that's much easier to test than behaviour spread across a shuffle.
 
 ## Joins across the boundary
 
 Joins were the hardest case. When the two sides of a join live in different fleets, one side has to travel. It's the classic distributed join question with a much steeper price on the wrong answer:
 
-- **Ship the small side.** If one input is small, build the hash table from it and send that table across, then probe it locally against the big side. This is a broadcast join, with the broadcast going over a cloud link.
+- **Ship the small side.** If one input is small, build the hash table from it and send that table across, then probe it locally against the big side. This is a broadcast join, with the broadcast going over a cloud link. Where residency rules apply, the planner also has to know which side is allowed to travel at all.
 - **Don't ship either side whole if you can avoid it.** Filter and project first, so the side that travels is only the columns and rows the join needs.
 - **Decide with estimates, and be ready to be wrong.** Size estimates are least reliable exactly where they matter most, on filtered intermediate results. A wrong guess here isn't just slow, it's expensive.
 
@@ -60,15 +60,15 @@ Before any of that, executors in different clouds need to reach each other. The 
 - **Each cloud's own peering or VPN** works well within a cloud and less well between clouds, and every pair of providers is a different project.
 - **An overlay network** gives every node a private address that works the same everywhere.
 
-I spent part of September prototyping the third option on [WireGuard](https://www.wireguard.com/). WireGuard suits this kind of problem: it's small, it's fast, it lives in the kernel, and a tunnel between two machines is just a pair of keys and an endpoint. The hard parts aren't the tunnels. They're everything around them: how nodes find each other, how keys are handed out and rotated, and what happens when a node behind a NAT changes address. I'm not going to go into how I handled those, but if you're starting down this road, budget for the control plane, not the data plane.
+I spent part of September prototyping the third option on [WireGuard](https://www.wireguard.com/). WireGuard suits this kind of problem: it's small, it's fast, it's in the Linux kernel, and a tunnel between two machines is just a pair of keys and an endpoint. The hard parts aren't the tunnels. They're everything around them: how nodes find each other, how keys are handed out and rotated, and how two nodes that are both behind NAT reach each other at all. I'm not going to go into how I handled those, but if you're starting down this road, budget for the control plane, not the data plane.
 
 ## Where we went further
 
-Everything above is the textbook version, and you can build it from ideas that are already public. At [e6data](https://www.e6data.com/) we didn't stop at locality. How our scheduler decides where each piece of a hybrid query runs, and what it's willing to move to get there, is the part of that work I'm proudest of. It's also the part I can't write about yet. If the textbook version is hitting its limits in your own cross-cloud setup, keep an eye on what our engineering team writes up.
+Everything above is the textbook version, and you can build it from ideas that are already public. At [e6data](https://www.e6data.com/) we didn't stop at locality. How our scheduler decides where each piece of a hybrid query runs is the part of that work I'm proudest of. It's also the part I can't write about yet. If the textbook version is hitting its limits in your own cross-cloud setup, keep an eye on what our engineering team writes up.
 
 ## What I'd tell a team going hybrid
 
 - **Make egress the first number in your cost model.** Most of the design falls out of taking it seriously.
-- **Put the boundary in the plan.** An explicit operator for "data crosses fleets here" is easier to optimise, observe and test than a property hidden in the shuffle.
+- **Put the boundary in the plan.** An explicit operator for "data crosses fleets here" is easier to optimise, debug and test than a property hidden in the shuffle.
 - **Locality is old; the penalty is just steeper.** Reuse the ideas every distributed engine already has, and tune them for a much steeper cost of getting it wrong.
 - **Expect flaky tests and treat them as signal.** Tests that span fleets fail in ways single-network tests never do. Most of the time they're telling you something true about timing and failure in a real network.

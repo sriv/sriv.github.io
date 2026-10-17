@@ -5,7 +5,7 @@ Canonical: https://sriv.github.io/notes/spot-instances-and-the-query-that-must-n
 
 > Spot capacity is the cheapest compute a cloud will sell you, and it comes with a short warning before it's taken back. Deciding where in the stack to absorb that warning was the interesting part.
 
-By the second half of 2025 spot instances were one of the bigger levers we had on cost: spare cloud capacity sold at a deep discount, on the understanding that the provider can take it back. AWS gives you a two-minute warning. Azure and GCP give you closer to thirty seconds. Then the machine is gone.
+By the second half of 2025 spot instances were one of the bigger levers we had on cost: spare cloud capacity sold at a deep discount, on the understanding that the provider can take it back. AWS gives you a two-minute warning, sometimes earlier with a rebalance recommendation. Azure and GCP give you about thirty seconds. Then the machine is gone.
 
 For a stateless web service that's an annoyance. For a distributed query engine it's a real problem. An executor that disappears mid-query takes with it the tasks it was running, any intermediate results it was holding, and, if it happened to be coordinating the query, the query itself.
 
@@ -19,7 +19,7 @@ There are three obvious places to put recovery, and they behave very differently
 
 **Retry the tasks.** The queue that hands out work knows which tasks went to which executor. If an executor dies, its unfinished tasks can be handed to someone else. The query keeps running and only the lost slice is redone.
 
-**Retry the query.** Throw the whole query away and run it again from the top. Simple and always correct, but it can turn a short interruption into a much longer query.
+**Retry the query.** Throw the whole query away and run it again from the top. Simple and correct for a read-only query that hasn't returned anything yet, but it can turn a short interruption into a much longer query.
 
 The answer I landed on was all three, each at the level where it's cheapest, plus a fourth step that comes before any of them: use the warning.
 
@@ -29,13 +29,13 @@ The answer I landed on was all three, each at the level where it's cheapest, plu
 
 ## First, use the warning
 
-Even thirty seconds is a long time for an executor, and two minutes is a lot. Most scan tasks finish in seconds. So the first thing each executor got was a small detector per cloud that watches for the interruption notice: the instance metadata endpoint on AWS, scheduled events on Azure, the preemption signal on GCP.
+Even thirty seconds is a long time for an executor, and two minutes is a lot. Most scan tasks finish in seconds. So the first thing each executor got was a small detector per cloud that watches for the interruption notice: the instance metadata endpoint on AWS, Scheduled Events on Azure, the `preempted` metadata value on GCP.
 
 When the notice arrives, the executor starts **draining**:
 
 - it stops asking the queue for new tasks,
 - it keeps working on the tasks it already has,
-- it tells the queue it's terminating, so the queue stops routing work to it and can start moving anything that won't finish in time.
+- it tells the queue it's terminating, so the queue knows not to count on it and can start moving anything that won't finish in time.
 
 When it works, the interruption ends right there. The tasks in flight finish inside the window, nothing new lands on the machine, and the query never notices. The best retry is the one you don't need.
 
@@ -47,7 +47,7 @@ The retry is deliberately best-effort. Some work can't simply be replayed. If th
 
 ## Last, retry the query
 
-The coordinator is the special case. It holds the query's plan, tracks which stages are done, and assembles the result. If the coordinating executor dies, there's nobody left in the cluster who knows what the query was doing. So that case goes all the way up: the planner, which still has the original query, retries it from the top on a healthy executor.
+The coordinator is the special case. It holds the query's plan, tracks which stages are done, and assembles the result. If the coordinating executor dies, there's no executor left that knows what the query was doing. So that case goes all the way up: the planner, which still has the original query, retries it from the top on a healthy executor.
 
 It's the most expensive recovery and the rarest, and that's the right way round.
 
@@ -60,9 +60,9 @@ So executors got a **circuit breaker**. After a call to a dead or terminating ex
 - **critical** calls, where the caller needs the answer, fail fast with a clear error, so the retry logic above can take over,
 - **non-critical** calls, like a status poll or a cleanup, quietly return nothing.
 
-That split mattered more than the breaker itself. The first version was strict about everything, and within days I made it more forgiving, letting the non-critical calls degrade gracefully instead of failing.
+That split mattered more than the breaker itself. The first version treated every call as critical. Within days I added the split.
 
-One more lesson from this stretch: failure handling has a way of calling itself. There was a recovery callback that, a couple of hops later, ended up triggering itself, and it only showed up during real interruptions. If your recovery path can trigger itself, it eventually will.
+One more lesson from this stretch: failure handling has a way of feeding back into itself. There was a recovery callback that, a couple of hops later, ended up triggering itself, and it only showed up during real interruptions. If your recovery path can trigger itself, it eventually will.
 
 ## What I'd tell a team running on spot
 

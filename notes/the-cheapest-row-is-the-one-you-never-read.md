@@ -3,7 +3,7 @@
 By Srikanth Venugopalan, 31 May 2024. Topics: engines, pruning.
 Canonical: https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/
 
-> Before indexes, vectors or distributed anything, I had to learn where a query engine actually spends its time. The answer: reading things it didn't need.
+> Before indexes, vectors or distributed anything, I had to learn where our query engine actually spent its time. The answer: reading things it didn't need.
 
 At the end of May 2024 I moved onto the execution side of our query engine. It's a pipelined, vectorized engine written in Java that runs SQL over Parquet files sitting in object storage. I'd used engines like this for years. I had never had to make one faster.
 
@@ -21,7 +21,7 @@ Data moves through a pipeline in **batches**. Each batch is a set of column vect
 
 *The scan, top to bottom. Every step down is more work spent on rows the filter may throw away.*
 
-The scan sits at the bottom of every pipeline, and on a lakehouse it does a lot more than "read a file". For a Parquet file on S3 it has to:
+The scan sits at the bottom of every leaf pipeline, and on a lakehouse it does a lot more than "read a file". For a Parquet file on S3 it has to:
 
 1. work out which files belong to the query (table metadata, partitions),
 2. read each file's footer to find the row groups and column chunks,
@@ -34,16 +34,16 @@ Every step costs something, and the cost compounds. A row you reject at step 1 c
 
 ## The ladder of skipping
 
-Once you see the scan this way, the question changes from "how do I make the filter faster?" to "how early can I find out that I don't need this data?" Engines answer it with a ladder of increasingly fine-grained structures:
+Once you see the scan this way, the question changes from "how do I make the filter faster?" to "how early can I find out that I don't need this data?" Engines answer it with a ladder of increasingly fine-grained checks:
 
 - **Partition pruning.** If the table is partitioned by day and the query asks for one day, skip every other day. Free, but only helps queries that filter on the partition column.
-- **File and row-group statistics.** Parquet keeps min/max values per column per row group. If the query wants `amount > 1000` and a row group's max is 400, skip it without reading a byte of data.
+- **File and row-group statistics.** Iceberg manifests and the Delta log keep min/max values per column per file, and Parquet writers usually store them per column per row group. If the query wants `amount > 1000` and a row group's max is 400, skip it without reading a byte of data.
 - **Page-level indexes.** The same idea, one level down.
 - **Late materialization.** Read and filter the predicate column first, then fetch the other columns only for the rows that survived.
 
-Each rung is cheaper than the one below it, and each one is useless for some query shape. Min/max statistics are the clearest example. They work beautifully on columns where values cluster, like timestamps in an append-only table. They do almost nothing for a column like `user_id` or `order_id`, where every row group contains a spread of values from the smallest to the largest. The min is small, the max is large, and every row group "might" contain the value you're looking for.
+Each rung is cheaper than the one below it, and each one is useless for some query shape. Min/max statistics are the clearest example. They work beautifully on columns where values cluster, like timestamps in an append-only table. They do almost nothing for a column like `user_id` or a UUID, where values arrive in no particular order and every row group ends up with a spread from the smallest to the largest. The min is small, the max is large, and every row group "might" contain the value you're looking for.
 
-A lot of real queries are exactly that shape: find this customer, this order, this session. Point lookups on high-cardinality columns are where min/max pruning falls over and where the engine ends up reading close to the whole table to return a handful of rows.
+A lot of real queries are exactly that shape: find this customer, this order, this session. Point lookups on high-cardinality columns that the table isn't sorted or clustered by are where min/max pruning falls over and where the engine ends up reading close to the whole table to return a handful of rows.
 
 ## The decision: skip before you speed up
 
@@ -62,7 +62,7 @@ The trade-off is that every skipping structure you add is something else to buil
 
 A pruning structure is allowed to be imprecise in one direction only. It can say "this row group *might* have matching rows" when it doesn't. That costs you a wasted read, nothing more. It must never say "this row group has no matching rows" when it does, because then the query silently returns the wrong answer.
 
-Bloom filters fit this naturally. A bloom filter gives false positives but no false negatives. Min/max statistics fit it too, as long as they're computed correctly. Where it gets dangerous is anything the engine builds or caches for itself, because now the engine is responsible for keeping that structure in step with the data. A stale index that says "no" after new data lands is the worst kind of database bug: nothing crashes, the numbers are just wrong.
+Bloom filters fit this naturally. A bloom filter gives false positives but no false negatives. Min/max statistics fit it too, as long as they're computed correctly. Where it gets dangerous is anything the engine builds or caches for itself, because now the engine is responsible for keeping that structure in step with the data. An index that says "no" about data it never saw is the worst kind of database bug: nothing crashes, the numbers are just wrong.
 
 Every design in the other notes had to survive that rule first and be fast second.
 

@@ -5,7 +5,7 @@ redirect_from: /journal/vectors-inside-a-sql-engine/
 tags: [vectors]
 chapter: 4
 period: "17 December 2024"
-dek: "Everyone was standing up a separate vector database. I tried making similarity search just another thing the query engine could do."
+dek: "Most teams I talked to were standing up a separate vector database. I tried making similarity search just another thing our query engine could do."
 ---
 
 At the end of 2024 every conversation about search seemed to start with "which vector database?". The usual shape was a second system next to the warehouse: copy the text out, embed it, load the vectors into a dedicated store, and join the results back to the tables in application code.
@@ -16,7 +16,7 @@ We already had an engine that was good at scanning large tables in object storag
 
 The core choice was how a user should see vectors. There were two shapes.
 
-**Vectors as data the user manages.** The table gets an `embedding` column of floats. The user computes embeddings somewhere, writes them in, and queries with distance functions over that column. This is flexible and honest, and it pushes all the hard work back onto the user.
+**Vectors as data the user manages.** The table gets an `embedding` column of floats. The user computes embeddings somewhere, writes them in, and queries with distance functions over that column. This is flexible and simple, and it pushes the hard work back onto the user.
 
 **Vectors as something the engine maintains for a text column.** The user says "make `review_title` searchable". The engine computes embeddings for that column and stores them next to the data. At query time the user writes something like:
 
@@ -45,19 +45,19 @@ The detail that mattered most was keeping vectors aligned with the files they de
 
 The other big decision was not to start with an approximate index.
 
-Most vector databases lead with HNSW or IVF graphs and clusters. They answer "the nearest 10 vectors" without looking at most of them, at the cost of sometimes missing a true neighbour. They're the right tool for a dedicated, latency-sensitive search service.
+Most vector databases lead with an approximate index, such as HNSW graphs or IVF clusters. They answer "the nearest 10 vectors" without looking at most of them, at the cost of sometimes missing a true neighbour. They're the right tool for a dedicated, latency-sensitive search service.
 
 I started with exact search: compute the distance to every candidate vector and keep the best. Three reasons:
 
 - **It's always right.** Exact search is the baseline you measure every approximation against. Starting there meant I'd know exactly what I gave up later.
-- **It composes with SQL.** An approximate index answers "nearest overall". Real queries say "nearest among the reviews from last month with rating under 3". With an exact scan, the filter runs first and the distance is computed only on what's left. Combining filters with approximate indexes is a well-known source of quietly bad results.
+- **It composes with SQL.** A plain approximate index answers "nearest overall". Filtered variants exist, but keeping recall up when the filter is selective is still hard. Real queries say "nearest among the reviews from last month with rating under 3". With an exact scan, the filter runs first and the distance is computed only on what's left. Combining selective filters with approximate indexes is a well-known source of quietly bad results, such as too few rows or missed neighbours.
 - **An analytical engine is good at scans.** Splitting the scan across files and executors, computing distances in vectorized batches, and merging each part's best results is exactly the kind of work the engine already does well.
 
 The cost is obvious: you read every surviving vector. That is fine when filters and pruning have already cut the candidates down, and expensive when they haven't. It set up the next two months of work: making that read as cheap as possible.
 
 ## Where to keep the vectors
 
-The last open question in December was physical: what format should the vectors be stored in? There were three obvious candidates. Parquet, because everything else was Parquet. Avro, because a row-oriented format reads whole vectors in one go. And Lance, a newer columnar format built with vectors in mind.
+The last open question in December was physical: what format should the vectors be stored in? There were three obvious candidates. Parquet, because everything else was Parquet. Avro, because it stores each vector's floats as one simple array, without Parquet's per-element list encoding. And Lance, a newer columnar format built with vectors in mind.
 
 I wrote benchmarks to read embeddings through all three in the engine's own scan path. [What I tried and threw away](/notes/what-we-tried-and-threw-away/) covers why I didn't adopt any of them, and how that led to writing my own format in January.
 

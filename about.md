@@ -9,8 +9,8 @@ Lately I've been looking at how agents use OLAP engines. Agents query differentl
 
 Most of what I care about comes down to a few beliefs:
 
-- The fastest row is the one you never read. Pruning, indexing and good metadata usually beat a faster operator.
-- An engine is only as good as its worst commit path. Table formats are now a performance problem, not just a storage one.
+- The cheapest row is the one you never read. Pruning, indexing and good metadata usually beat a faster operator.
+- On an open table format, the commit path is part of the engine's performance. Table formats are now a performance problem, not just a storage one.
 - Measure before you argue. Most of the arguments I've lost, I lost to a benchmark.
 
 Before data infrastructure I spent a long stretch on developer tooling. From 2015 to 2021 I was the lead developer of [Gauge](https://gauge.org), the open-source test automation framework sponsored by ThoughtWorks, and I've carried on as an open-source maintainer in my individual capacity since. That's where I learnt to care about the people on the other end of an API.
