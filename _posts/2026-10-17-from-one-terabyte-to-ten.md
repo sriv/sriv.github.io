@@ -2,7 +2,7 @@
 layout: post
 title: "From one terabyte to ten"
 redirect_from: /journal/from-one-terabyte-to-ten/
-chapter: 12
+chapter: 13
 period: "16 October 2026"
 dek: "A distributed query engine that works at one terabyte has proved very little about ten. The lessons from this autumn, minus the numbers."
 ---
