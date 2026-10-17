@@ -47,15 +47,15 @@ That's what "adaptive" means here. The tree is shallow where things change often
 
 The second piece is about deletes and compaction. In v1–v3, if compaction replaces ten small files with one big one, every manifest that listed those ten files has to be rewritten without them.
 
-Version 4 adds **manifest deletion vectors**. The root manifest's entry for a leaf can carry a bitmap of positions in that leaf that are no longer live. Removing a file from a leaf means setting a bit on the root entry, while the leaf itself stays untouched. The bitmaps use the [Mumbling](https://iceberg.apache.org/mumbling-spec/) encoding, and each one records which snapshot last changed it.
+Version 4 adds **manifest deletion vectors**. The root manifest's entry for a leaf can carry a bitmap of positions in that leaf that are no longer live. Removing a file from a leaf means setting a bit on the root entry, while the leaf itself stays untouched. The bitmaps use [Mumbling](https://iceberg.apache.org/mumbling-spec/), a compact bitmap encoding the Iceberg project specifies for this, and each one records which snapshot last changed it.
 
-The same idea shows up one level down. A data file's own deletion vector, the bitmap of deleted rows inside it, now lives in the same manifest entry as the data file. Readers no longer have to plan in two phases, finding data files first and then matching delete files to them, because the deletes come with the file.
+The same idea shows up one level down. A data file's own deletion vector, the bitmap of deleted rows inside it, now lives in the same manifest entry as the data file. Readers no longer have to plan in two phases, finding data files first and then doing a second lookup to match delete files to them. The deletes sit in the same entry as the file they apply to, so planning reads one thing instead of joining two.
 
 ## Smaller changes that matter to implementers
 
 A few other v4 rules changed how I wrote code more than I expected:
 
-- **Strictly increasing snapshot timestamps.** On a v4 table, a snapshot's timestamp must be strictly greater than its parent's on the same branch. Two fast writers on machines with slightly different clocks can break that, so the commit path has to check and adjust rather than trusting the local clock.
+- **Strictly increasing snapshot timestamps.** On a v4 table, a snapshot's timestamp must be strictly greater than its parent's on the same branch. Two fast writers on machines with slightly different clocks can break that, so the commit path has to compare against the parent and bump the timestamp past it when the local clock hasn't moved far enough, rather than trusting the machine's time.
 - **Relative paths.** Metadata can store file locations relative to the table location, which makes copying or moving a table much less painful.
 - **No new equality deletes.** Writers can't produce new equality delete files in v4. Existing ones stay readable.
 - **Sequence numbers are inherited.** New entries are written without a sequence number, and readers fill it in from the parent. That's what lets a writer write a leaf manifest once and reuse it across commit retries. Only the root has to be rewritten when the commit is retried.
