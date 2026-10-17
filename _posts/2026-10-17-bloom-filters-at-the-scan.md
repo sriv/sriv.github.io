@@ -28,13 +28,13 @@ I did the first one first, because it was self-contained and easy to test, and t
 
 Here's what the paper version leaves out. On object storage, reading the bloom filter is itself a remote read. It's small, a few kilobytes to a few hundred kilobytes per column per row group, but it is still a GET with its own latency. For a file with many row groups, asking every bloom filter on every query can cost a noticeable fraction of what you were trying to save.
 
-I spent a while on this, including reading the bloom filters as one batch of vectored ranges instead of one after another. Either way, the real fix was not to read them again at all. Data files in a lakehouse are immutable: a path, once written, never changes. So a bloom filter read once is good for as long as the file exists.
+I spent a while on this, including reading the bloom filters as one batch of vectored ranges instead of one after another. Either way, the real fix was not to read them again at all. Data files in an Iceberg or Delta table are immutable: a path, once written, never changes, and compaction writes new files rather than rewriting old ones. So a bloom filter read once is good for as long as the file exists. (Plain directory-based tables can rewrite a file in place, which is a good reason to put the file's size or modification time into the cache key as well.)
 
-So we put an **index store** in front of the reader: an in-process cache keyed by file, row group and column, holding the bloom filters we'd already read. The first query against a file pays for the bloom reads. Every query after that asks the cache.
+So we put a cache in front of the reader: in-process, keyed by file, row group and column, holding the bloom filters we'd already read. We called it the **index store**, because I already suspected it would end up holding more than Parquet's own filters. The first query against a file pays for the bloom reads. Every query after that asks the cache.
 
 The store also has a default that I think is the most important line in the whole feature. If there is no entry for a key, the answer is "maybe". A missing index never prunes anything. It just means you read the data, the same as before the feature existed.
 
-## The bug that proved the default
+## A bug that proved the default
 
 That default earned its keep within a week. We found that the code registering a bloom filter and the code looking it up built the file path slightly differently, so lookups missed. Every miss returned "maybe", every affected row group was read, and the results stayed correct. The only symptom was that pruning didn't prune.
 
@@ -56,11 +56,10 @@ It looks like a lot of ceremony for a cache. It's the part of this work I'm happ
 
 ## What I'd do the same way again
 
-A few things from that month that I still apply:
+Two things from that month that I still apply:
 
 - **Make "unknown" the safe answer.** Any structure that can skip work should treat missing or broken metadata as "read it". Then bugs show up in latency graphs rather than in someone's quarterly numbers.
 - **Price the metadata read.** On object storage, metadata isn't free. Cache anything immutable, and measure how much time goes into asking the index before celebrating what the index saves.
-- **Ship it switched off.** The engine-built bloom filters went in behind a flag that was off by default, and stayed that way while we built confidence in them. With anything that can drop rows, I'd rather be slow to enable than fast to apologise.
 
 There was one more lesson that set up the next chapter. Most Parquet files in the wild don't have bloom filters at all. Common writers leave them off by default, and you rarely control the writer. If we wanted bloom-filter pruning on the tables people actually had, the engine would have to build the filters itself, from the data it was already reading.
 
