@@ -83,9 +83,10 @@ pre code { border: 0; padding: 0; background: none; }
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
-  margin: 3.5rem 0 3rem;
-  max-width: 20ch;
+  margin: 3.5rem 0 0.9rem;
+  max-width: 24ch;
 }
+.home .sublede { font-size: 1.1rem; color: var(--muted); margin: 0 0 3rem; }
 .chapter-list { margin: 0; list-style: none; }
 .chapter-list li {
   margin: 0;

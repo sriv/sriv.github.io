@@ -2,7 +2,8 @@
 layout: base
 ---
 <div class="home">
-  <p class="lede">Notes from the engine work, decisions and mistakes included.</p>
+  <p class="lede">Notes from building a distributed, petabyte-scale analytical query engine.</p>
+  <p class="sublede">What I tried, what held up, and what I'd do differently.</p>
 
   {%- assign chapters = site.posts | where_exp: "p", "p.chapter" | sort: "chapter" | reverse %}
   <ul class="post-list chapter-list">

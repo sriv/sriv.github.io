@@ -1,5 +1,5 @@
 title: Hack n Learn
-description: Notes from building query engines and lakehouse storage.
+description: Notes from building a distributed, petabyte-scale analytical query engine.
 url: https://sriv.github.io
 baseurl: ""
 author:
