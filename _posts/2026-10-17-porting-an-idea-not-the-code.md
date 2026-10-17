@@ -12,7 +12,7 @@ I expected a translation job and got something closer to a redesign. Writing an 
 
 ## What carried over
 
-Here's what survived the trip unchanged, and none of it is code:
+Here's what survived the trip unchanged. None of it is code:
 
 - **An index answers "maybe" or "no", and a wrong "no" is the only real bug.** Missing entries, failed builds and anything unexpected all mean "maybe".
 - **Build lazily, from data the query was reading anyway.** No background jobs, no separate build step.
@@ -43,7 +43,7 @@ In the Java engine, the scan decoded a row group into batches and a separate fil
 
 DataFusion can push filters down into the Parquet reader itself, so rows that don't match are dropped *while* decoding. That's a real performance win, and you want it on. It also means the batches that come out of the scan are no longer the row group. They're the part of the row group the current query cared about. Build a min/max or a bloom filter from that, and you've built an index that will confidently say "no" to values that are sitting right there in the file.
 
-In Java this rule had been met by the shape of the engine. In Rust it had to be enforced deliberately: an index is only kept when we know it was built from the whole row group, and anything less is discarded. I'm not going to go into how we arranged that, but the important part is being able to name the rule. Once you can say "never keep an index built from a partial view", a whole class of bugs becomes something you check for rather than something you stumble into.
+In Java this rule had been met by the shape of the engine. In Rust it had to be enforced deliberately: an index is only kept when we know it was built from the whole row group, and anything less is discarded. I won't go into the mechanism here. The important part is being able to name the rule. Once you can say "never keep an index built from a partial view", a whole class of bugs becomes something you check for rather than something you stumble into.
 
 ## A simpler bloom filter
 
@@ -55,7 +55,7 @@ That one change removed a surprising amount of code:
 - **Uniform size.** Every filter for a given expected row count is the same size, which makes memory accounting predictable.
 - **Mergeable.** Two filters of the same size combine with a bitwise OR, so filters built in pieces can be joined without going back to the data.
 
-The one thing to be careful of is that the hash has to be stable and has to agree between the side that builds the filter and the side that probes it. Hash `5` as a 32-bit integer on one side and a 64-bit one on the other, and you get a wrong "no". It's the same bug from [chapter 2](/journal/bloom-filters-at-the-scan/) in different clothes.
+The one thing to be careful of is that the hash has to be stable and has to agree between the side that builds the filter and the side that probes it. Hash `5` as an `INT` when you build the filter, probe it with the `BIGINT` literal the query planner produced, and you get a wrong "no". It's the same bug from [chapter 2](/journal/bloom-filters-at-the-scan/) in different clothes.
 
 ## What I'd tell someone porting a subsystem
 
