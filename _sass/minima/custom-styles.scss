@@ -1,0 +1,45 @@
+// Journal additions on top of Minima. Kept small on purpose.
+
+.chapter-period { margin-bottom: 0.25rem; }
+.dek { font-size: 1.15rem; color: #6a6a6a; margin: 0.5rem 0 0; }
+
+.chapter-list .post-meta { display: block; }
+.chapter-list p { margin: 0.2rem 0 0; color: #6a6a6a; }
+.older-list h2 { font-size: 1.1rem; }
+
+.chapter-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e8e8e8;
+  .next { margin-left: auto; text-align: right; }
+  span { display: block; font-size: 0.85rem; color: #828282; }
+}
+
+// Diagrams: inline SVG, hand-drawn, coloured to follow the light/dark skin.
+figure.sketch { margin: 1.75rem 0 2rem; }
+figure.sketch svg { width: 100%; height: auto; display: block; }
+figure.sketch figcaption { font-size: 0.9rem; color: #828282; margin-top: 0.4rem; }
+.sketch .ink { stroke: #222; }
+.sketch .pen { stroke: #2a4d9b; }
+.sketch .pencil { stroke: #7a7a7a; }
+.sketch .rule { stroke: #c0564f; }
+.sketch .t { fill: #222; font-family: "Kalam", "Bradley Hand", cursive; }
+.sketch .t-pen { fill: #2a4d9b; font-family: "Kalam", "Bradley Hand", cursive; }
+.sketch .t-pencil { fill: #7a7a7a; font-family: "Kalam", "Bradley Hand", cursive; }
+
+@media (prefers-color-scheme: dark) {
+  .dek, .chapter-list p { color: #a0a0a0; }
+  .chapter-nav { border-top-color: #333; }
+  .sketch .ink { stroke: #e0e0e0; }
+  .sketch .pen { stroke: #8fb0f2; }
+  .sketch .pencil { stroke: #9a9a9a; }
+  .sketch .rule { stroke: #d0736b; }
+  .sketch .t { fill: #e0e0e0; }
+  .sketch .t-pen { fill: #8fb0f2; }
+  .sketch .t-pencil { fill: #9a9a9a; }
+}
+
+.older-list .post-list li { margin-bottom: 0.4rem; }

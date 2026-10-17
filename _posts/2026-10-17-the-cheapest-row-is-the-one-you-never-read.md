@@ -3,7 +3,7 @@ layout: post
 title: "The cheapest row is the one you never read"
 chapter: 1
 period: "April 2024"
-dek: "Before indexes, vectors or distributed anything, I had to learn where a query engine actually spends its time. Mostly, it's reading things it didn't need."
+dek: "Before indexes, vectors or distributed anything, I had to learn where a query engine actually spends its time. The answer: reading things it didn't need."
 ---
 
 In April 2024 I moved onto the execution side of our query engine. It's a pipelined, vectorized engine written in Java that runs SQL over Parquet files sitting in object storage. I'd used engines like this for years. I had never had to make one faster.
@@ -13,8 +13,6 @@ My instinct was to go looking for a slow operator, a join that spilled or an agg
 That changed how I thought about the next two years of work, so it seems like the right place to start this journal.
 
 ## How a query actually runs
-
-If you haven't looked inside one of these engines, here is the short version.
 
 The planner turns SQL into a tree of physical operators: scan, filter, project, join, aggregate. The executor cuts that tree into **pipelines**, chains of operators that can pass data along without waiting. A pipeline ends wherever an operator has to see all of its input before it can produce anything. Building the hash table for a join is one of those points. Sorting is another.
 
@@ -71,4 +69,4 @@ Every design in the chapters that follow had to survive that rule first and be f
 
 Measure bytes, not just time. For each slow query, look at how many bytes the scan fetched against how many bytes the final result actually depended on. That ratio tells you whether you have a compute problem or a "reading things you didn't need" problem. In my experience it's usually the second one, and that's the cheaper one to fix.
 
-Next up is bloom filters at the scan, and why the hard part wasn't the bloom filter.
+Next: pushing bloom filters down to the scan, and why the filter itself was the easy part.

@@ -4,16 +4,36 @@ url: https://sriv.github.io
 baseurl: ""
 author:
   name: Srikanth Venugopalan
+
+remote_theme: jekyll/minima@4de322363fca5927e6f4012cb94f6dad69ab5e6c
+plugins:
+  - jekyll-remote-theme
+  - jekyll-feed
+  - jekyll-seo-tag
+
+minima:
+  skin: auto
+  nav_pages:
+    - about.md
+  social_links:
+    - title: GitHub
+      icon: github
+      url: "https://github.com/sriv"
+    - title: LinkedIn
+      icon: linkedin
+      url: "https://www.linkedin.com/in/srikanth-v-6393b922/"
+
 markdown: kramdown
 kramdown:
   input: GFM
-  hard_wrap: false
-highlighter: rouge
 permalink: /journal/:title/
-plugins:
-  - jekyll-feed
 feed:
   path: atom.xml
+
+sass:
+  quiet_deps: true
+  silence_deprecations: [import]
+
 exclude:
   - README.md
   - Gemfile

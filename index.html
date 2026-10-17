@@ -1,38 +1,31 @@
 ---
-layout: default
-title: Journal
+layout: base
 ---
-<section class="intro">
-  <h1 class="headline">I work on query engines, mostly on the parts that decide what not to read.</h1>
+<div class="home">
+  <p>I work on query engines, mostly on the parts that decide what not to read.</p>
   <p>This is my engineering journal. It starts in April 2024 and follows the work in order: indexes inside the engine, vectors in SQL, queries that run across more than one cloud, and lately the metadata layer of the lakehouse. Each chapter is written from my notes for that period.</p>
-</section>
 
-{% assign chapters = site.posts | where_exp: "p", "p.chapter" | sort: "chapter" %}
-<section class="toc" aria-labelledby="toc-title">
-  <h2 id="toc-title" class="visually-hidden">Chapters</h2>
-  {% if chapters.size > 0 %}
-  <ol class="chapters">
-    {% for p in chapters %}
+  {%- assign chapters = site.posts | where_exp: "p", "p.chapter" | sort: "chapter" %}
+  <h2 class="post-list-heading">Journal</h2>
+  <ul class="post-list chapter-list">
+    {%- for p in chapters %}
     <li>
-      <span class="stamp">{{ p.period }}</span>
-      <a href="{{ p.url | relative_url }}">{{ p.title }}</a>
-      {% if p.dek %}<p>{{ p.dek }}</p>{% endif %}
+      <span class="post-meta">{{ p.period }}</span>
+      <h3><a class="post-link" href="{{ p.url | relative_url }}">{{ p.title | escape }}</a></h3>
+      {%- if p.dek %}<p>{{ p.dek }}</p>{% endif %}
     </li>
-    {% endfor %}
-  </ol>
-  {% else %}
-  <p class="empty">The first chapter is on its way.</p>
-  {% endif %}
-</section>
-
-{% assign old = site.posts | where: "archive", true %}
-{% if old.size > 0 %}
-<section class="older" aria-labelledby="older-title">
-  <h2 id="older-title">Older writing, 2012 to 2013</h2>
-  <ul>
-    {% for p in old %}
-    <li><a href="{{ p.url | relative_url }}">{{ p.title }}</a> <time datetime="{{ p.date | date_to_xmlschema }}">{{ p.date | date: "%b %Y" }}</time></li>
-    {% endfor %}
+    {%- endfor %}
   </ul>
-</section>
-{% endif %}
+
+  {%- assign old = site.posts | where: "archive", true %}
+  {%- if old.size > 0 %}
+  <div class="older-list">
+    <h2 class="post-list-heading">Older writing, 2012 to 2013</h2>
+    <ul class="post-list">
+      {%- for p in old %}
+      <li><span class="post-meta">{{ p.date | date: "%b %Y" }}</span> <a href="{{ p.url | relative_url }}">{{ p.title | escape }}</a></li>
+      {%- endfor %}
+    </ul>
+  </div>
+  {%- endif %}
+</div>
