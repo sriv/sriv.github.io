@@ -70,25 +70,15 @@ code, pre, kbd { font-family: "JetBrains Mono", ui-monospace, monospace; font-si
 a { color: var(--pen); text-underline-offset: 0.18em; text-decoration-thickness: 1px; }
 a:visited { color: var(--pen); }
 
-// Site name, written by hand with a pen underline.
+// Site name: plain, set in the reading face.
 .site-title, .site-title:visited {
-  font-family: "Kalam", "Bradley Hand", cursive;
-  font-weight: 700;
-  font-size: 1.5rem;
-  letter-spacing: 0;
+  font-family: "Literata", Georgia, serif;
+  font-weight: 600;
+  font-size: 1.3rem;
+  letter-spacing: -0.01em;
   color: var(--ink);
-  position: relative;
-  padding-bottom: 2px;
 }
-.site-title::after {
-  content: "";
-  position: absolute; left: 0; right: 0; bottom: 6px; height: 9px;
-  background: var(--pen);
-  -webkit-mask: url("/assets/img/squiggle.svg") no-repeat center / 100% 100%;
-          mask: url("/assets/img/squiggle.svg") no-repeat center / 100% 100%;
-  opacity: 0.85;
-}
-.site-title:hover { text-decoration: none; }
+.site-title:hover { text-decoration: none; color: var(--pen); }
 
 // Dates read as pencil notes in the margin.
 .chapter-period, .chapter-list .post-meta {
