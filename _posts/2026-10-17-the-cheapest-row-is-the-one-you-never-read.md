@@ -3,7 +3,7 @@ layout: post
 title: "The cheapest row is the one you never read"
 redirect_from: /journal/the-cheapest-row-is-the-one-you-never-read/
 tags: [engines, pruning]
-chapter: 1
+when: 2024-05-31
 period: "31 May 2024"
 dek: "Before indexes, vectors or distributed anything, I had to learn where our query engine actually spent its time. The answer: reading things it didn't need."
 ---

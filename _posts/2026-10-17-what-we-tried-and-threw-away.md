@@ -3,7 +3,7 @@ layout: post
 title: "What I tried and threw away"
 redirect_from: /journal/what-we-tried-and-threw-away/
 tags: [vectors, experiments]
-chapter: 5
+when: 2025-02-03
 period: "3 February 2025"
 dek: "Three experiments that didn't make it: virtual threads for the executor, a vector database library, and product quantization. Each one taught me something the successes didn't."
 ---

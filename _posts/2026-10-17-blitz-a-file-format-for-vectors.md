@@ -3,7 +3,7 @@ layout: post
 title: "Blitz: a file format for vectors on object storage"
 redirect_from: /journal/blitz-a-file-format-for-vectors/
 tags: [vectors, file formats]
-chapter: 6
+when: 2025-02-25
 period: "25 February 2025"
 dek: "Vector search wants a handful of vectors out of millions, at full precision, from storage that charges you per request. None of the formats I tried did that well in my setup, so I wrote a small one that did."
 ---

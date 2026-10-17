@@ -48,10 +48,10 @@ def to_markdown(body):
 notes = []
 for path in glob.glob(os.path.join(ROOT, "_posts", "*.md")):
     meta, body = front_matter(open(path).read())
-    if "chapter" not in meta:
+    if "when" not in meta:
         continue  # the 2012-13 archive posts are not part of the notes
     slug = re.sub(r"^\d{4}-\d\d-\d\d-", "", os.path.basename(path))[:-3]
-    notes.append(dict(meta, slug=slug, body=to_markdown(body), order=int(meta["chapter"])))
+    notes.append(dict(meta, slug=slug, body=to_markdown(body), order=meta["when"]))
 notes.sort(key=lambda n: n["order"], reverse=True)
 
 os.makedirs(os.path.join(ROOT, "notes"), exist_ok=True)
@@ -67,7 +67,7 @@ for n in notes:
 
 intro = f"""# hack-n-learn
 
-> Notes by {AUTHOR} on building a distributed, petabyte-scale analytical query engine, and on the architecture around it: query execution, indexing, vector search, lakehouse storage (Apache Iceberg, Parquet), distributed and multi-cloud execution, and what data systems need as AI agents become their users.
+> Notes by {AUTHOR} on building a distributed, petabyte-scale analytical query engine, and on the architecture around it: query execution, indexing, vector search, lakehouse storage (Apache Iceberg, Parquet), distributed and multi-cloud execution, and what data systems need as AI agents become their users. Also notes from 2017 to 2025 on Gauge, the open-source test automation framework: wire protocols, plugin supervision, loading user code in .NET, telemetry, and keeping a project alive after its sponsor stepped back.
 
 The author works on OLAP query engines at e6data. Each note is written from first-hand engineering work and dated to when the work happened. Earlier writing (2012 to 2013) is also on the site.
 

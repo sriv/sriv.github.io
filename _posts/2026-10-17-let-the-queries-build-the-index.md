@@ -3,7 +3,7 @@ layout: post
 title: "Let the queries build the index"
 redirect_from: /journal/let-the-queries-build-the-index/
 tags: [indexes]
-chapter: 3
+when: 2024-12-04
 period: "4 December 2024"
 dek: "Most Parquet files don't carry bloom filters, and we didn't control the writers. So the engine started building its own indexes from data it was reading anyway."
 ---

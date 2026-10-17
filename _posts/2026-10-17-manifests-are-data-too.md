@@ -3,7 +3,7 @@ layout: post
 title: "Manifests are data too"
 redirect_from: /journal/manifests-are-data-too/
 tags: [iceberg]
-chapter: 10
+when: 2026-05-13
 period: "13 May 2026"
 dek: "Iceberg's manifests have always been row-oriented Avro. The draft version 4 spec makes them Parquet. Everything I'd learned about not reading data turned out to apply to metadata as well."
 ---

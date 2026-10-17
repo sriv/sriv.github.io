@@ -3,7 +3,7 @@ layout: post
 title: "A metadata tree that grows with the change"
 redirect_from: /journal/a-metadata-tree-that-grows-with-the-change/
 tags: [iceberg]
-chapter: 11
+when: 2026-06-05
 period: "5 June 2026"
 dek: "The draft Iceberg v4 spec replaces the manifest list with a root manifest. It sounds like a file rename. It changes what a small commit costs."
 ---

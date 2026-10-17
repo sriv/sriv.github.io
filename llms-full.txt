@@ -1,6 +1,6 @@
 # hack-n-learn
 
-> Notes by Srikanth Venugopalan on building a distributed, petabyte-scale analytical query engine, and on the architecture around it: query execution, indexing, vector search, lakehouse storage (Apache Iceberg, Parquet), distributed and multi-cloud execution, and what data systems need as AI agents become their users.
+> Notes by Srikanth Venugopalan on building a distributed, petabyte-scale analytical query engine, and on the architecture around it: query execution, indexing, vector search, lakehouse storage (Apache Iceberg, Parquet), distributed and multi-cloud execution, and what data systems need as AI agents become their users. Also notes from 2017 to 2025 on Gauge, the open-source test automation framework: wire protocols, plugin supervision, loading user code in .NET, telemetry, and keeping a project alive after its sponsor stepped back.
 
 The author works on OLAP query engines at e6data. Each note is written from first-hand engineering work and dated to when the work happened. Earlier writing (2012 to 2013) is also on the site.
 
@@ -248,6 +248,211 @@ Indexes in an analytical engine are mostly a hierarchy of cheap questions, each 
 
 ---
 
+# Simulating the commit path: deterministic tests for streaming writes to Iceberg
+
+By Srikanth Venugopalan, 13 August 2026. Topics: testing, iceberg, distributed.
+Canonical: https://sriv.github.io/notes/simulating-the-commit-path/
+
+> A streaming writer commits to an Iceberg table every few seconds, retries on conflict, and shares the table with compaction and garbage collection. I borrowed SlateDB's approach to deterministic simulation to test it. It caught less than I hoped, and taught me more.
+
+A streaming writer is a very persistent client of a table format. It lands a few files, commits, and does it again a few seconds later, forever. Around it, other processes rewrite the same table: compaction merges small files, garbage collection deletes files nothing points to, snapshot expiry trims history. Every one of them commits through the same optimistic protocol: read the current metadata, write new metadata, swap a pointer, and retry from the top if someone else got there first.
+
+Each of those steps is simple. The bugs live in the interleavings: a retry that rebuilds its change from stale state, a garbage collector that sees a file a moment before the commit that references it lands, a clock that disagrees with another clock. They show up in production as a handful of rows read twice, or a file deleted that a snapshot still needs. They almost never show up in a unit test, because a unit test runs one interleaving, the friendly one.
+
+This summer I built a deterministic simulation harness for that commit path. This note is about how it works, what it found, and, more usefully, what it didn't.
+
+## The idea, borrowed
+
+The approach isn't mine. FoundationDB made deterministic simulation famous, TigerBeetle and others built on it, and tools like [madsim](https://github.com/madsim-rs/madsim) and [Antithesis](https://antithesis.com/docs/resources/deterministic_simulation_testing/) generalised it. The version I learnt the most from was [SlateDB's `slatedb-dst`](https://github.com/slatedb/slatedb/tree/main/slatedb-dst), because it solves almost the same problem: a storage engine whose only durable state lives in object storage.
+
+Its shape is worth copying:
+
+- **One seed decides everything.** A root random generator derives the seeds for the runtime, the clock and every actor, so a failing run can be replayed exactly from one number.
+- **The world is simulated.** A mock clock instead of the system clock, a deterministic filesystem standing in for object storage, and a single-threaded runtime so scheduling is reproducible.
+- **Faults are part of the world.** An object store wrapper injects latency, dropped connections and errors with seeded probabilities.
+- **Invariants, not examples.** The flagship test is a bank: actors transfer money between accounts while an auditor checks that the total never changes, through every kind of reader.
+- **Determinism is itself tested.** The same seed is run twice and the runs must agree. Otherwise the harness is quietly testing something else.
+- **It runs all the time.** SlateDB runs its simulations in CI every hour.
+
+[Diagram: Deterministic simulation: one seed drives a simulated clock, an object store with seeded faults, and actors such as writers, garbage collection and snapshot expiry. They exercise the real commit path, and an oracle checks invariants after every step. A failing run prints its seed, so it can be replayed exactly.]
+
+*Everything that can vary comes from the seed, so every failure can be replayed.*
+
+## Two tiers
+
+I ended up with two kinds of simulation, and the distinction turned out to matter more than anything else.
+
+### Models of the protocol
+
+The first tier doesn't run the real code at all. It's a few hundred lines of plain Rust that model one piece of the commit protocol: a table as a set of files, a catalog as a pointer, writers and collectors as actors taking seeded steps. No dependencies, a tiny seeded generator, and a function that runs a schedule and returns the first invariant it breaks.
+
+Each model comes as a pair:
+
+- a **naive** version of the algorithm, which the harness must catch breaking the invariant on many seeds, and
+- a **safe** version, which must hold the invariant on every seed.
+
+The pairing keeps the harness honest. If the naive version stops failing, the simulation has lost its teeth, not found a fix.
+
+The models covered the commit races I cared about:
+
+- **Commit against garbage collection.** Invariant: every file reachable from the table exists in storage. The naive collector deletes anything currently unreachable, which includes files written by a commit that hasn't landed yet. The safe one waits out a grace period.
+- **Optimistic retry of a rewrite.** Invariant: the table's content never changes across a rewrite, and the files stay a partition of it, with no row in two files. The naive retry reuses the list of files it decided to remove before the conflict.
+- **At-least-once delivery.** A consumer that deduplicates by message id turns at-least-once into exactly-once. One that doesn't, doesn't.
+- **Clock skew.** A grace period measured in wall-clock time is defeated by a collector whose clock runs ahead. A guard based on the catalog's own sequence numbers isn't, because it never asks anyone what time it is.
+
+That last one is my favourite result of the whole exercise. It turned a vague worry ("what if clocks drift?") into a precise rule: never let a correctness decision depend on two machines agreeing about time.
+
+I want to be honest about what this tier is, though. Every one of those models reproduces a bug we'd already had or already feared. They're **executable specifications of known failures**. That's valuable: the rule is now written down in a form that fails loudly, and the next person to touch the protocol inherits it. But it isn't discovery.
+
+### The real code, under faults
+
+The second tier runs the real table library: the real transaction and its retry loop, the real manifest writer, the real scan planner, in-process against an in-memory catalog and file system. Seeded schedules mix appends, rewrites and expiries, and after every commit the test checks the table against an **oracle**, a plain set of the files that should be live:
+
+- nothing lost and nothing duplicated: the scan returns exactly the oracle's files,
+- a failed commit leaves the table unchanged,
+- the reachable set is exactly the set of successful commits, with no phantoms,
+- after expiring every older snapshot, the current one is still fully readable.
+
+Faults come from two wrappers. One fails the catalog's register step, which models a crash after the files are written but before the commit is recorded. The other sits under the file system and fails reads, writes and deletes, adds latency, or partitions the network until healed.
+
+My favourite invariant in this tier is a small one: **a read fault must surface as an error, never as fewer rows.** A scan that swallows a failed read and returns a short result is the worst kind of bug in an analytical engine, because nothing about the answer looks wrong.
+
+## What it caught
+
+Less than I'd hoped. And the best catch was one I ignored.
+
+**The signal I misread.** One of the first real-code tests appended three files in one commit, replaced two of them with a merged file, and expected the merged file plus the untouched one. On one format version it failed: the replaced files stayed live. I'd only just built the harness, the failure involved a code path I was less sure the test set up correctly, and I concluded the harness was wrong. I marked the test ignored and moved on.
+
+Two months later the same bug turned up the expensive way. When a rewrite touched a manifest that mixed files being replaced with files being kept, it wrote every entry back as newly *added*, including the ones that should have been marked *deleted*. The replaced files stayed live next to their replacement, so every merged row was read twice. The snapshot summary still reported the deletes, which made it look fine to anything that only read the summary. Looking back, the regression test written for the fix has almost exactly the shape of the test I'd ignored in August.
+
+The harness did its job. I didn't do mine. The lesson I took is now a rule: **a red simulation test is a bug until proven otherwise**, and "the harness is probably wrong" needs the same evidence as "the code is wrong".
+
+**A safety switch wired to nothing.** Writing a test for conflicting rewrites, I found a flag meant to disable retries for exactly that case. The retry logic read it. Nothing ever set it. It had been wired up after an earlier incident, then unwired when a better fix made retries safe, and the flag was left behind looking like protection. It wasn't a live bug, but it's the kind of thing only a test that tries to use the switch will find.
+
+**The harness that tested nothing.** After a dependency upgrade, the in-memory file system stopped going through the I/O layer the fault injector was attached to. Every fault test kept passing, because no fault ever reached the code under test. The fix was to wrap the storage at the level the commit and scan paths actually call, and to make sure the wrapper hands back wrapped readers and writers rather than the inner ones. That's the reason for SlateDB's determinism test, and I'd now add a cousin to every harness: **a test that proves the faults are landing**, by checking that the naive version still fails.
+
+## What it doesn't do
+
+This is the part I'd want to read if someone else had written this note.
+
+- **It's barely concurrent.** The real-code tier has no simulated scheduler. Races are staged by hand: two transactions from the same starting point. The interleavings it explores are the ones I thought of.
+- **Time isn't simulated in the real code.** The library still asks the system clock. Clock skew is tested with synthetic timestamps, which is weaker than owning the clock.
+- **Too few seeds, too rarely.** A dozen seeds per test, run with the normal test suite. No soak runs, no hourly job, no way to throw a million seeds at it overnight. SlateDB does all three.
+- **The oracle is too coarse.** It tracks which files should be live, not what rows they hold, and the schedules for one format version never included rewrites at all. That gap is exactly where the missed bug lived.
+- **No real catalog, no real crash.** The catalog is in memory, so there's no network between the writer and its commit. And the streaming writer itself never crashes and restarts inside the simulation, which is where exactly-once really gets tested.
+
+Most of that list is one piece of work: threading a clock and a storage interface through the writer and the catalog client, so the simulation can own both. That's the line between "tests with seeds" and a simulation, and SlateDB is on the right side of it.
+
+## What I'd do again
+
+- **Pair every model with a naive version that must fail.** It's the cheapest way to know the harness can still see.
+- **Make "never fewer rows" an invariant.** Silent short reads are the bug analytical systems can't afford.
+- **Prefer logical clocks for correctness.** Anything that compares wall-clock times across machines will eventually be wrong.
+- **Treat red as real.** The most valuable output of a simulation is a failure you don't yet understand. It deserves more time, not less.
+- **Run it constantly.** A simulation that runs a dozen seeds once per pull request is a unit test with extra steps. The value is in the volume.
+
+---
+
+# An Iceberg catalog with no database: Lakekeeper on SlateDB
+
+By Srikanth Venugopalan, 17 June 2026. Topics: iceberg, lakehouse, storage.
+Canonical: https://sriv.github.io/notes/a-catalog-on-object-storage/
+
+> I wrote a backend that keeps an Iceberg REST catalog's state in SlateDB, a key-value store that lives entirely in object storage. It worked, and it kept the catalog's state out of a database. This note is mostly about what it cost: the guarantees I rebuilt, the ones I didn't, and what I'd do differently.
+
+An Iceberg table is files in object storage plus one pointer: the location of the current metadata file. Everything else in a lakehouse can be scaled, cached or thrown away and rebuilt. That pointer can't. Every writer swaps it with a compare-and-swap, and the catalog is the thing that owns the swap.
+
+[Lakekeeper](https://github.com/lakekeeper/lakekeeper) is an open-source Iceberg REST catalog written in Rust. The server is stateless and keeps its state in Postgres. That's a sensible default, and for most people the right one. But it does mean that a system whose data lives entirely in object storage still needs a database next to it, with its own backups, upgrades, failover and on-call.
+
+[SlateDB](https://slatedb.io) is an embedded key-value store that writes everything, its write-ahead log included, to object storage. No disks to manage, no replicas to run. So the obvious question: can the catalog live in the same bucket as the tables it describes?
+
+I built a SlateDB backend for Lakekeeper to find out. It runs, it passes about 170 tests, and I learnt more from its limitations than from the parts that worked.
+
+## Why bother
+
+The motivation wasn't performance. Postgres is faster at almost everything a catalog does. It was operational:
+
+- **One durable system, not two.** If the tables and the catalog live in the same object store, durability, replication and backup are one problem, solved by the cloud provider.
+- **Nothing stateful to run.** The catalog becomes a process that can be killed and restarted anywhere, as long as only one copy writes at a time.
+- **Cost proportional to use.** A catalog that serves a few commits a minute doesn't need a database instance sized for peak.
+
+It's not an unusual idea. Someone opened a [Lakekeeper issue proposing exactly this](https://github.com/lakekeeper/lakekeeper/issues/2079) in October 2026. The maintainers' answer is worth quoting in spirit: they don't have the capacity to support another backend upstream, because maintaining one is a lot of continuous effort. Having done it, I agree. That sentence is the most accurate summary of this note.
+
+## What a backend has to implement
+
+Lakekeeper's backend is chosen at compile time: you hand a storage type to the server. The contract is a set of Rust traits, and it's much bigger than "store table metadata":
+
+- a **transaction** trait: begin a read or write transaction, commit, roll back;
+- a **catalog store** trait with close to a hundred async methods: projects, warehouses, namespaces, tables, views, generic tables, roles, users, role memberships (transitive, paginated), endpoint statistics, a **task queue**, and idempotency keys;
+- a **secret store** for storage credentials.
+
+The Postgres backend leans on SQL for almost all of it, and each of those SQL features became something I had to rebuild by hand.
+
+| Postgres gives you | On a key-value store, I had to build |
+|---|---|
+| A table commit as one `UPDATE … WHERE metadata_location = old` | A read, a compare, and a write |
+| `UNIQUE` constraints, case-insensitive | Name-index keys, checked before insert |
+| Secondary indexes | About twenty hand-maintained index key families |
+| `ORDER BY … LIMIT` with a cursor | Prefix scans plus pagination tokens |
+| Recursive queries over role membership | Graph walks in memory |
+| `FOR UPDATE SKIP LOCKED` for the task queue | A scan for the first scheduled task |
+| Trigram search | Substring match over a scan |
+| `ALTER TABLE` and migrations | Versioned rewrite functions run at startup |
+
+## How it's built
+
+**Keys are paths.** Every record has a primary key (`table/{id}`, `ns/{id}`, `warehouse/{id}`) and one or more index keys that point at it (`table_by_name/{warehouse}/{namespace}/{name}`, `table_by_metadata_loc/{location}`, and so on). Names come from users, so every user-supplied segment is percent-encoded before it goes into a key. My first encoding replaced a few characters and could make two different names collide. Fixing that needed a migration that rebuilt every index. In a key-value store, the key encoding is the schema, and I learnt that the expensive way.
+
+**Records are JSON.** Postgres splits Iceberg table metadata across about fifteen normalised tables. I stored the whole metadata document in the table's record. Simpler, and fine for a catalog that mostly reads and replaces the whole thing.
+
+**A transaction is a buffer.** Each request collects its puts and deletes and writes them at commit as one atomic batch. That's what keeps a record and its indexes from ever being half-written. Reads inside the transaction merge the pending buffer over the database, so a request sees its own writes. The first version didn't, and a request that created something and then looked it up couldn't find it. Tests caught that in the first week.
+
+**Migrations are code.** A schema version key, and an ordered list of functions that rewrite keys and values from one version to the next, run by the writer at startup. There's no `ALTER TABLE` in a key-value store.
+
+## The limitations
+
+This is the part that matters, and the reason I'd tell anyone to think hard before doing the same.
+
+**One writer, so no high availability.** SlateDB is [designed for a single writer](https://slatedb.io/docs/get-started/introduction/) and fences out old ones with an epoch in its manifest. That's a good design, and it's what keeps two writers from corrupting each other. But it means the catalog has exactly one process that can commit. Restart it and every table in the lakehouse is read-only until it's back. Start a second copy and it fences the first instead of sharing the load. Lakekeeper on Postgres is stateless and scales horizontally. On SlateDB, it isn't and doesn't. SlateDB supports readers on other nodes, and serving catalog reads from them is the obvious next step. I didn't build it.
+
+**Every commit waits for object storage.** A commit is only durable once the write-ahead log has reached object storage. That's a flush interval plus a PUT, so tens to hundreds of milliseconds, where Postgres takes a few. SlateDB is upfront about this: it's [meant for workloads that tolerate 50 to 100 ms writes](https://slatedb.io/docs/get-started/introduction/). For a catalog that's acceptable. For a catalog under a streaming writer committing to hundreds of tables, it's the number to watch.
+
+**My compare-and-swap isn't atomic.** This is the honest one. Postgres does the commit in one statement: update the pointer only if it still points where the client thinks. My backend reads the record, compares, then writes. The server is the only writer, so a lock around that path would have been enough. I didn't add one, and with many concurrent requests in one process, nothing stops two of them passing the check before either writes. The same window exists for name uniqueness and for claiming a task from the queue. And when my backend did detect a conflict, it reported a server error rather than Iceberg's 409 conflict, which a client reads as "I don't know if my commit happened" rather than "retry".
+
+What makes this worse is that it was avoidable. SlateDB has had [transactions with snapshot and serializable-snapshot isolation](https://slatedb.io/rfcs/0011-transaction/) since late 2025, with write-write conflict detection. I built on plain write batches instead, because they were simpler and I was copying the shape of the Postgres backend. A real compare-and-swap, real uniqueness and safe task claiming are all one transaction away. If I started again, that's the first thing I'd change.
+
+**The task queue was the sharpest edge.** Lakekeeper schedules background work, like cleaning up dropped tables, through its task queue, and some of those tasks reschedule themselves. My first port dropped the "not before this time" condition when picking tasks. Self-rescheduling tasks ran as fast as the loop could pick them, every write went to the log, the log grew, and replaying it on restart got slow enough that the process failed its health checks. A one-line filter in SQL became an outage-shaped bug in a key-value port. The queue also ignores heartbeat timeouts, so a task held by a crashed worker is never picked up again.
+
+**Lists and searches don't scale.** Pagination scans the whole prefix and skips to the cursor, so every page costs as much as the whole list. Search is substring matching over a scan. Role inheritance is walked in memory. All of it is fine for hundreds of tables. None of it is fine for millions.
+
+**Some things are missing.** Endpoint and warehouse statistics return nothing. Secrets are stored without encryption, which rules it out for anyone who keeps real credentials in the catalog. Authorisation through OpenFGA still needs its own database, so "no database" only holds if you don't use it.
+
+**Operations get harder.** There's no SQL console. Debugging means reading keys by hand. Backing up by copying the prefix isn't safe while compaction is rewriting files underneath it. SlateDB has checkpoints for exactly this, but I never wired them into a backup. When something goes wrong, the answer is often "look at the log files in the bucket", which is a sentence nobody wants in a runbook.
+
+**The interface moves.** Lakekeeper changed the backend traits a week after I finished, and the backend didn't compile until I caught up. Every upstream release is a small porting job. That's the maintainers' point, felt from the other side.
+
+## What about FoundationDB?
+
+The other backend people reach for in this conversation is [FoundationDB](https://apple.github.io/foundationdb/), and it's worth being precise about the difference, because it's the whole design space in one line. FoundationDB is a distributed key-value store with strictly serializable transactions across many writers. Putting a catalog on it gives you everything Postgres gives you except SQL: real compare-and-swap, real uniqueness, many active catalog servers, no single writer to restart. What it doesn't give you is "no stateful system to run". FoundationDB is a cluster with its own disks, coordinators and operational folklore. It's arguably harder to run than Postgres.
+
+So the three options sit on one axis:
+
+- **Postgres:** transactions and SQL, a database to operate.
+- **FoundationDB:** transactions across many writers, a harder cluster to operate.
+- **SlateDB:** nothing to operate but a bucket, at the price of a single writer and object-storage latency.
+
+None of them is wrong. They trade operational weight for concurrency, and the right one depends on how many writers you have and how much infrastructure you're willing to own.
+
+## What I'd tell someone starting
+
+- **Count the contract first.** "Store the catalog in a key-value store" sounds like a table and an index. It's a hundred methods, a task queue, authorisation data and secrets.
+- **Use the store's transactions.** Every hand-rolled check-then-write in this backend is a race that SlateDB's transactions would have closed.
+- **Map conflicts to conflicts.** A 409 makes a client retry. Anything else makes it wonder whether its data is there.
+- **Port the `WHERE` clauses, not just the tables.** The worst bug here was a time condition that didn't make the trip from SQL.
+- **Decide about availability up front.** A single writer is a feature for correctness and a bug for uptime. Know which one your users will notice.
+
+---
+
 # A metadata tree that grows with the change
 
 By Srikanth Venugopalan, 5 June 2026. Topics: iceberg.
@@ -458,6 +663,74 @@ The one thing to be careful of is that the hash has to be stable and has to agre
 - **Look for the rules the old system enforced by accident.** They're the ones a new engine breaks quietly.
 - **Prefer the host's extension points to a fork.** You inherit its correctness and its future fixes, and your own code gets smaller.
 - **Expect the second version to be simpler.** If it isn't, you may be porting the first engine's shape rather than the idea.
+
+---
+
+# Random order is only useful if you can replay it
+
+By Srikanth Venugopalan, 6 November 2025. Topics: gauge, testing, cli design.
+Canonical: https://sriv.github.io/notes/gauge-reproducible-randomness/
+
+> In 2017 I removed a flag that ran Gauge specs in random order. In 2025 I added it back. The difference was a seed, and a place to keep it.
+
+On 6 November 2025 I merged a [change to Gauge](https://github.com/getgauge/gauge/pull/2794) that lets you run specs and scenarios in random order:
+
+```
+gauge run --sort=random specs/
+Randomizing execution with seed: 1761802692487777000
+```
+
+Eight years earlier I had [removed a flag that did much the same thing](https://github.com/getgauge/gauge/pull/664). This note is about why the first version went and what made the second one worth having.
+
+## Why run tests in random order at all
+
+A suite that always runs in the same order can hide dependencies between tests. Scenario B passes because scenario A happened to leave a row in the database, or a file on disk, or a logged-in session. Nothing in either scenario says so. You find out the day someone runs B on its own, or the day the order changes for an unrelated reason.
+
+Gauge has always said execution order isn't guaranteed unless you ask for `--sort`. In practice, specs ran in the order they were found, and scenarios ran in the order they were written. That makes the order a consequence of the implementation, not a promise, and people come to rely on consequences. Shuffling the order on purpose is the cheapest way to find out whether a suite has that kind of hidden coupling.
+
+## The first attempt, and why I removed it
+
+In May 2017 we [proposed](https://github.com/getgauge/gauge/issues/641) an `--order` flag with two values, `sort` and `random`, to replace the existing `--sort`. It made it into nightly builds but never into a release. On 1 June 2017, a few weeks after the proposal, I removed it again.
+
+The reasons I gave at the time were mostly about confusion. There were now two flags that touched ordering. It wasn't clear what `--order=sort` meant when specs were split across parallel streams. And there was a philosophical worry that a built-in ordering option would encourage people to write specs that depend on each other.
+
+Looking back, the real gap was a different one, and it took a later discussion to make it obvious.
+
+## What random order needs
+
+In October 2025 a contributor [asked for random order again](https://github.com/getgauge/gauge/issues/2793), for the reason above: to expose hidden dependencies in an API test suite. My first reply was a list of objections, and the main one was this: if a run fails because of the order, how do you debug it? The next run will choose a different order and probably pass. You can't tell an ordering bug from ordinary flakiness, and you can't reproduce either.
+
+Chad Wilson, another maintainer, pointed out that this is a solved problem. Tools that shuffle tests print the seed they used, and accept a seed as input, so that any run can be replayed exactly. JUnit and the Gradle test-partitioning plugins work like this. As Chad put it, you shouldn't implement random ordering without doing this.
+
+He was right, and it changes the trade-off completely. A random order you can't replay is noise. A random order you can replay is a search: each run tries a new arrangement, and when one fails you have its address.
+
+## What I built
+
+The change is small. Most of it is flags and tests.
+
+- `--sort` now takes a value: `alpha` or `random`. A bare `--sort` still means alphabetical, so existing scripts keep working.
+- With `random`, Gauge seeds a pseudo-random generator, shuffles the specs, and then shuffles the scenarios within each spec. Table-driven scenarios are shuffled too, because the shuffle runs after tables have been expanded into scenarios.
+- The seed is always printed. If you don't pass one, Gauge generates one from the clock and prints that.
+- `--random-seed=<n>` replays a specific order.
+
+The part that took the most thought was making `--repeat` and `--failed` work. Gauge already saves the arguments of the last run in `.gauge/lastRunCmd.json`, so that `gauge run --repeat` can rerun it. If the seed were generated inside the run, it would be lost, and `--repeat` would shuffle again. So the seed is generated before the arguments are saved, and added to them as an explicit `--random-seed`. A repeated run is then just a run with a seed, and nothing else needs to know about randomness.
+
+## What a seed does and doesn't promise
+
+A seed reproduces an order only for the same input. Gauge shuffles the list of specs it was given, so the same seed over the same specs gives the same order. Add a spec, remove one, or rerun only the failed ones, and the same seed still gives a deterministic order, but a different one.
+
+For `--failed` that's the behaviour you want: you rerun a smaller set, in a fixed order, and can rerun it again. But it's worth saying plainly, because "uses the same seed" is easy to read as "uses the same order".
+
+There's a second, smaller gap. The seed is printed in the console output and saved with the last run, but it doesn't appear in the HTML, JSON or XML reports. The contributor who asked for the feature raised this straight away. Chad's answer was that the seed on its own isn't enough to reproduce a run: you also need the other arguments, and those don't reach the report plugins today. That's still open.
+
+## What I'd check in any runner
+
+- **Randomness in a tool needs an address.** Any time a tool makes a random choice that affects the result, print what it used and accept it back as input. Otherwise it's adding noise to the thing people are trying to debug.
+- **Save the generated value, not the instruction to generate one.** "Shuffle" isn't reproducible. "Shuffle with 1761802692487777000" is.
+- **Revisit removals when the objection changes.** I removed `--order` in 2017 for reasons that were partly about naming and partly about not knowing how to make a failure reproducible. With the second problem solved, the first was a matter of choosing flag values carefully.
+- **Keep the old meaning of a flag.** Turning `--sort` from a boolean into a value without breaking a bare `--sort` cost one line of flag configuration and saved every existing CI script.
+
+The feature itself is a few dozen lines. Most of the value came from the discussion that went before it, and from someone pointing out that the problem I was worried about already had a standard answer.
 
 ---
 
@@ -1047,3 +1320,639 @@ Every design in the other notes had to survive that rule first and be fast secon
 Measure bytes, not just time. For each slow query, look at how many bytes the scan fetched against how many bytes the final result actually depended on. That ratio tells you whether you have a compute problem or a "reading things you didn't need" problem. In my experience it's usually the second one, and that's the cheaper one to fix.
 
 Next: pushing bloom filters down to the scan, and why the filter itself was the easy part.
+
+---
+
+# Preparing an open-source project to lose its sponsor
+
+By Srikanth Venugopalan, 1 September 2020. Topics: gauge, open source, maintainership.
+Canonical: https://sriv.github.io/notes/gauge-preparing-a-project-to-lose-its-sponsor/
+
+> When a company stops funding the team behind a project, the code keeps working. Everything around it is what needs preparing: the licence, the release, the contributor terms, and the things that quietly expire.
+
+On 1 September 2020 we [announced](https://github.com/getgauge/gauge/issues/1732) that from January 2021, Gauge and Taiko would become fully community-managed projects. After six years of sponsored development, ThoughtWorks would no longer staff a full-time team on them. The announcement was a short Q&A: who does releases, what about licences, should I migrate my tests.
+
+Each of those answers was a promise, and most of the work of that year was making them true. The code was in good shape. What needed preparing was everything around the code that a sponsoring company holds without anyone noticing: the legal paperwork, the release machinery, the signing keys, the accounts. This note is about that work, the parts I did, and the parts teammates did.
+
+## What a sponsor holds without anyone noticing
+
+A sponsored project accumulates things that only work because there is an organisation behind it:
+
+- **A licence chosen years ago**, for reasons nobody quite remembers.
+- **A contributor agreement** that someone has to countersign and file.
+- **Release steps** that live partly in a CI server and partly in someone's head.
+- **Certificates, tokens and accounts** that belong to a company and renew on a company card.
+
+None of these show up in the code. All of them stop working, or stop making sense, when the people who held them move on. The useful exercise is to list them before that happens, and for each one decide: make it public, automate it, or drop it.
+
+## The licence
+
+Gauge core was GPLv3. In April 2020 a would-be adopter [opened an issue](https://github.com/getgauge/gauge/issues/1628) saying their team couldn't adopt Gauge because of how their organisation saw the GPL, and asked whether we'd consider Apache 2.0. The move had already started: zabil had begun relicensing plugins earlier that month, for example the [IntelliJ plugin](https://github.com/getgauge/Intellij-Plugin/pull/435) and [gauge-java](https://github.com/getgauge/gauge-java/pull/427).
+
+I did the [core repository](https://github.com/getgauge/gauge/pull/1632), opened on 29 April and merged on 4 May, and then worked through the rest: [gauge-proto](https://github.com/getgauge/gauge-proto/pull/27), [common](https://github.com/getgauge/common/pull/6), [gauge-dotnet](https://github.com/getgauge/gauge-dotnet/pull/86), [gauge-csharp-core](https://github.com/getgauge/gauge-csharp-core/pull/7), [gauge-csharp-lib](https://github.com/getgauge/gauge-csharp-lib/pull/10), [html-report](https://github.com/getgauge/html-report/pull/261), [xml-report](https://github.com/getgauge/xml-report/pull/25), [Flash](https://github.com/getgauge/Flash/pull/9), [spectacle](https://github.com/getgauge/spectacle/pull/25), an old licence text left in [gauge-java](https://github.com/getgauge/gauge-java/pull/453), and the footer of [the website](https://github.com/getgauge/gauge.org/pull/183).
+
+Two things I took from it. First, a licence change is a sweep, not a commit. A project like Gauge is a dozen repositories, and the licence appears in each one's `LICENSE` file, in file headers, in package metadata and on the website. Second, the place you miss it is the metadata. A few weeks after the main change I was [fixing the licence key](https://github.com/getgauge/gauge/pull/1655) in a Python package's metadata, which is exactly what a package index and a company's licence scanner read first.
+
+## The release
+
+The announcement said releases and build infrastructure were "completely open source and automated using GitHub and GitHub Actions". That was true because of work earlier in 2020 that I didn't do: negiDharmendra and Vinay Shankar Shukla added the release workflows in February, and BugDiver [automated the release](https://github.com/getgauge/gauge/pull/1582) in March. By the time of the announcement, cutting a release no longer depended on a particular machine or a particular person.
+
+Automated releases still need maintaining, and that part kept coming back to me. In late 2020 GitHub deprecated the old way of setting environment variables from workflow steps, and our workflows used it, so I [moved them to environment files](https://github.com/getgauge/gauge/pull/1794). A release pipeline on hosted CI is a dependency on someone else's roadmap. It doesn't need a sponsor, but it does need someone watching the deprecation notices.
+
+## Contributor terms
+
+Gauge had used a contributor licence agreement. A CLA works well when there's an organisation to be the other party to it: someone sends the agreement, someone keeps the signed copies, someone checks them on pull requests.
+
+The announcement said contributions would use the [Developer Certificate of Origin](https://developercertificate.org/) instead. On 1 December I [updated the contributing guide](https://github.com/getgauge/gauge/pull/1799) to match. Mechanically, the DCO moves the statement into each commit: the contributor adds a `Signed-off-by` line, and a check on the pull request looks for it. There's nothing to file and nobody to countersign, which is the property that matters when there may not be an organisation to do either.
+
+## The things that expire
+
+This is the one I'd put first if I did it again.
+
+Our release workflow signed binaries with a code-signing certificate. Certificates expire. In May 2021 ours did, and the release broke. There was no longer a team whose job included renewing it, so on 25 May I [removed code signing from the release workflow](https://github.com/getgauge/gauge/pull/2004), with the commit message "cert has expired", and spent the rest of the day getting the release green again ([1](https://github.com/getgauge/gauge/pull/2005), [2](https://github.com/getgauge/gauge/pull/2006), [3](https://github.com/getgauge/gauge/pull/2007)).
+
+Nothing about that was a surprise in hindsight. The certificate had an expiry date printed on it. What changed was that renewing it had stopped being a routine task and become a decision: who pays, under whose name. A sponsored project doesn't have to answer that question. A community project does, and it's better to answer it on a calm afternoon than on release day.
+
+The same applies to domains, package-registry tokens, CI secrets, cloud accounts that host downloads, and the email address the project's accounts are registered to. Each one has an owner and, often, an expiry date. Each one is a small time bomb if the owner leaves.
+
+## The platform doesn't stop moving
+
+A project without a funded team still has to keep up with everything underneath it. In mid-2021 that meant Apple Silicon: [arm64 support for plugins](https://github.com/getgauge/gauge/pull/2037), [allowing x86_64 plugin binaries to run on arm64 Macs](https://github.com/getgauge/gauge/pull/2045) in the meantime, an arm64 build of [html-report](https://github.com/getgauge/html-report/pull/275), and a [gauge-python dependency bump](https://github.com/getgauge/gauge-python/pull/241) to fix installs on the new machines. Around the same time, a [Go upgrade in CI](https://github.com/getgauge/gauge/pull/2003).
+
+None of that is interesting work. All of it decides whether someone who runs `brew install gauge` on a new laptop gets a working tool.
+
+## Shrinking the surface
+
+The cheapest thing to maintain is the thing you no longer ship. Before the handover we trimmed what we could: the C# plugin came [out of the Windows installer](https://github.com/getgauge/gauge/pull/1763), and the Chocolatey package lost [an install message](https://github.com/getgauge/chocolatey-packages/pull/10) that referred to telemetry Gauge no longer collected. Each artefact you stop producing is one fewer thing that can break on a release day with nobody around.
+
+## What still applies
+
+Gauge is still releasing. As I write this, the latest release went out in October 2026, and I still contribute in my own time. The preparation in 2020 is a large part of why that's possible. The lessons I'd hand to anyone in the same position:
+
+- **Make the release something anyone with commit rights can run.** If a release needs a specific laptop or person, it isn't open source in the way that matters for survival.
+- **Inventory everything that expires.** Certificates, domains, tokens, accounts. Write down who owns each one and when it renews, before the people who own them move on.
+- **Prefer contributor terms that need no counterparty.** Anything that requires an organisation to sign or file paperwork becomes a blocker the day the organisation steps back.
+- **Treat a licence change as a sweep.** Every repository, every header, every package's metadata, the website.
+- **Shrink the surface before you lose the people.** Deprecate and remove what you can while there's still a team to do it carefully.
+- **Watch your dependencies' roadmaps.** Hosted CI, package registries and operating systems keep changing whether or not your project has funding.
+
+And one that isn't technical. Six years of funded development is what made it possible to hand over something that worked: a tested codebase, automated releases and a community that knew how to contribute. ThoughtWorks sponsored that, and it's why there was something worth preparing.
+
+---
+
+# Loading someone else's code: AppDomains, then AssemblyLoadContext
+
+By Srikanth Venugopalan, 14 August 2020. Topics: gauge, dotnet, runtime.
+Canonical: https://sriv.github.io/notes/gauge-assembly-load-contexts/
+
+> A test runner has to load the user's assemblies into its own process. On .NET Framework I used an AppDomain for that. On .NET Core there are none, and the replacement taught me that isolation, file locks and native dependencies pull in different directions.
+
+A test runner for a compiled language has an awkward job. It's a program with its own dependencies, and it has to load *your* program, with your dependencies, into the same process, find your step methods by reflection, and call them. If the two sets of dependencies disagree, something has to give.
+
+I've had to solve this twice for Gauge's C# support, five years apart, on two different runtimes.
+
+## 2015: an AppDomain
+
+The first C# runner targeted .NET Framework, which has AppDomains: isolated regions inside one process, each with its own set of loaded assemblies. In March 2015 I put the user's test code in a sandbox AppDomain, separate from the runner's.
+
+That gave real isolation, and charged for it at every boundary. Anything crossing between domains has to be marshalled: serialisable, or a proxy to an object on the other side. The commit history from that month is mostly me learning this, down to passing types across as strings because the real objects wouldn't marshal. It kept charging for years. In 2018 the execution context had to be serialised before it could be sent into the domain, and a `ConcurrentBag` that was fine on Windows broke the Linux build because Mono wouldn't carry it across domains.
+
+Still, it worked, and users mostly never thought about it.
+
+## .NET Core has no AppDomains
+
+When Gauge got a runner for .NET Core, the AppDomain option was gone; .NET Core supports exactly one per process. For a while the runner simply loaded every assembly from the project's build output with `Assembly.LoadFrom`, into the default context alongside its own.
+
+That's fine until the user's project depends on something that isn't just a managed DLL. In 2020 we started getting reports from people connecting to SQL Server from their tests: `System.Data.SqlClient is not supported on this platform` ([#80](https://github.com/getgauge/gauge-dotnet/issues/80), [gauge#1711](https://github.com/getgauge/gauge/issues/1711)), and, after a suggested workaround, `BadImageFormatException` ([#85](https://github.com/getgauge/gauge-dotnet/issues/85)).
+
+The cause is that packages like SqlClient ship more than one build of the same assembly: a placeholder that throws "not supported", plus platform-specific implementations and native libraries under a `runtimes/` folder. Which one you get is decided by the project's `.deps.json`, which the .NET host reads when it starts *your* application. Loading DLLs off disk by hand skips all of that, so the runner was picking up the placeholder.
+
+## A load context per job
+
+.NET Core's replacement for this kind of isolation is `AssemblyLoadContext`. You subclass it, decide how each assembly name is resolved, and load into it. The piece that made it fit was `AssemblyDependencyResolver`, which reads a `.deps.json` the same way the host does and resolves both managed assemblies and native libraries to the right platform-specific files.
+
+[The change in August 2020](https://github.com/getgauge/gauge-dotnet/pull/106) put the user's assemblies into a `GaugeLoadContext` that asks the resolver for every name. SqlClient got its real implementation. The old hand-written assembly loader went away, and so did two features that only existed to paper over the old model: a setting for extra library folders, since .NET wants those as package, project or DLL references in the project itself, and an older screenshot interface, which now produced a clear error pointing to its replacement while the run carried on.
+
+## Then the files were locked
+
+A month later, a different report: debugging from VS Code failed because the build couldn't overwrite DLLs in the output folder; [another process was using them](https://github.com/getgauge/gauge-dotnet/issues/114). That other process was the Gauge runner, running behind the editor's language server to power completion and navigation.
+
+`LoadFromAssemblyPath` keeps the file open. That's harmless for a test run that loads, executes and exits. It's not harmless for a runner that stays up as long as the editor does while the user rebuilds the same files.
+
+My first fix [made the context collectible](https://github.com/getgauge/gauge-dotnet/pull/115) and unloaded it after scanning when serving the editor. That released the files, but it fought with execution, which needs the reflected types and methods to still be there when it runs them.
+
+The [version that stuck](https://github.com/getgauge/gauge-dotnet/pull/119) separated the two jobs. For authoring, a `LockFreeGaugeLoadContext` reads each assembly into memory with `LoadFromStream`, so nothing on disk stays open. For execution, the original path-based context stays, because some packages carry runtime-specific pieces that are risky to load from raw bytes; that's the `BadImageFormatException` again. The comment I left in that class says both halves, because the next person to touch it would otherwise "simplify" it back into one.
+
+## If you're hosting user code
+
+- **Isolation is a cost you pay at every boundary.** AppDomains bought clean separation and charged for it in marshalling for as long as they were in use.
+- **Use the platform's resolver.** The runtime already knows how to pick the right build of a dependency for this OS and CPU. A runner that loads DLLs by hand is quietly reimplementing that, badly.
+- **The same code can have two jobs with opposite needs.** Execution wants faithful loading and doesn't care about locks. An editor wants files left alone and can tolerate a lighter load. Two contexts was the honest answer, not a hack.
+
+---
+
+# Benchmarks you can't trust, used for the one thing they're good at
+
+By Srikanth Venugopalan, 14 July 2020. Topics: gauge, testing, ci.
+Canonical: https://sriv.github.io/notes/gauge-benchmarks-in-ci/
+
+> Shared CI machines are terrible benchmark hardware. I put benchmarks on every Gauge pull request anyway, because the question wasn't how fast Gauge is but whether this change made it slower.
+
+Through the first half of 2020 I was changing how Gauge ran things in parallel: one multithreaded runner instead of a process per stream, runners started up front, suite hooks run once. Every one of those changes could make a run faster or slower, and I had no record of which. Beyond "it felt about the same on my laptop", there was nothing to check against.
+
+So in June 2020 I started [gauge-benchmarks](https://github.com/getgauge/gauge-benchmarks), and in July wired it into [Gauge's pull request](https://github.com/getgauge/gauge/pull/1682) and [merge](https://github.com/getgauge/gauge/pull/1686) workflows.
+
+## Deliberately boring
+
+The harness is a handful of shell scripts and three seed projects: a plain Java project, the same thing under Maven, and the same under Gradle. Each project's `run.sh` runs `gauge run specs` under `/usr/bin/time` and appends one line to a CSV: the Gauge commit, CPU percentage, peak memory, wall time and exit code.
+
+Every project runs three ways, because those were the paths I was changing:
+
+| Mode | What it exercises |
+|---|---|
+| serial | one runner, one stream |
+| parallel | one runner process per stream |
+| multithreaded | one runner, streams on threads |
+
+That's 3 projects × 3 modes = 9 jobs, run as a matrix in GitHub Actions. No profiler, no microbenchmarks, no statistics library. I wanted something anyone on the project could read in five minutes and fix without asking me.
+
+The exit code column earns its place. A run that's twice as fast because it crashed halfway is not an improvement, and a benchmark that doesn't record success will eventually report one.
+
+## The machines lie, so compare on the same machine
+
+GitHub's hosted runners are shared, virtualised and noisy. An absolute number from one of them says almost nothing. The note that the bot posts under every result says so in as many words: these are indicative numbers, they make sense for comparison, don't take them as actual benchmarks.
+
+What they're good for is a coarse before-and-after. On a pull request, the jobs build Gauge from the branch, run all nine combinations, and post a table that puts the branch's numbers next to the last few rows recorded from master. Noise of a few percent washes out. A change that doubles memory or adds seconds to a fourteen-second run doesn't.
+
+On merge to master the same jobs run again and append their rows to the CSVs in the benchmarks repo, which also backs a small chart page. That history is the part I'd keep if I could only keep one: a regression found three weeks late is still findable when every commit has a row.
+
+## The comment that a pull request couldn't post
+
+The fiddly part wasn't benchmarking. It was getting the result back onto the pull request.
+
+Most contributions to an open-source project come from forks, and GitHub Actions, sensibly, gives a workflow running on a fork's pull request a read-only token. It can run the benchmark, but it can't post the result back as a comment. In mid-2020 there was no event-driven way around that.
+
+So I wrote a small action, [artifact_as_comment](https://github.com/getgauge-contrib/artifact_as_comment), and its own README calls the approach roundabout. The pull request job writes its results to a markdown file and uploads it as a build artifact. A separate workflow in the main repository, which does have write access, runs on a schedule every fifteen minutes, looks at open pull requests and their latest runs, and if it finds a matching artifact, posts its contents as a comment. Credit to [nyurik](https://github.com/nyurik/auto_pr_comments_from_forks), whose repository convinced me there wasn't a cleaner route at the time; I did the same thing in JavaScript to skip the Docker startup.
+
+Polling is ugly. It was also the only design that kept untrusted fork code away from a write token, which is the property that matters.
+
+## Six years on
+
+The merge job is still running as I write this in October 2026, still appending a row for each commit to Gauge's master. Haroon later moved the seed projects to Java 11 and current dependencies, and dependabot keeps the build tools fresh. I haven't touched it in years. That's the best thing I can say about it.
+
+What I'd take from it:
+
+- **On noisy hardware, measure differences, not values.** Shared CI can't tell you how fast something is. It can tell you that this commit is a lot slower than the last one, if both ran there.
+- **Keep the history.** A per-commit row turns "when did this get slow?" from archaeology into a lookup.
+- **Record whether the run succeeded.** A benchmark without an exit code will one day celebrate a crash.
+- **Build it so it outlives your attention.** Shell, CSV and a cron job are not impressive. They are why it still works.
+
+---
+
+# Once per suite means once per process, until it doesn't
+
+By Srikanth Venugopalan, 14 May 2020. Topics: gauge, testing, concurrency.
+Canonical: https://sriv.github.io/notes/gauge-suite-hooks-under-parallelism/
+
+> Gauge's BeforeSuite hook ran once per parallel stream, not once per run. The fix was a few hundred lines. The decision behind it was that every language runner had to support threads.
+
+Gauge, the test automation tool I worked on for several years, has a hook called `BeforeSuite`. You put things in it that should happen once: start a browser grid, seed a database, open a connection pool. Its partner, `AfterSuite`, tears them down.
+
+In September 2019 someone filed [an issue against the Java runner](https://github.com/getgauge/gauge-java/issues/297) that was short and completely correct: when you run specs in parallel, `@BeforeSuite` and `@AfterSuite` run once for each parallel stream. Run with four streams and your database gets seeded four times, torn down four times, and probably raced in between.
+
+## Why it happened
+
+Gauge's core is a Go binary. The step implementations live in a separate process, a *language runner*, one per language: Java, C#, JavaScript, Python, Ruby. The core parses specs, decides what to run, and sends the runner messages like "execution starting", "run this step", "execution ending". The runner's job on "execution starting" is to call your `BeforeSuite` methods.
+
+The original parallel execution was the simplest thing that works. Split the specs into N groups, start N runner processes, and drive each one as if it were a serial run. Each runner received its own "execution starting", so each one ran the suite hooks. From the runner's point of view it was doing exactly what it was told. "Once per suite" had quietly meant "once per process", and parallelism had made those two different things.
+
+You can't fix that inside a runner. Four processes don't know about each other, and making them coordinate (a lock file, a leader election, a shared flag in some external store) would move a test tool's problem onto the user's machine in a fragile way.
+
+## The threads were already there
+
+The way out had been built years earlier for a different reason. In 2016 a user [reported Gauge crashing](https://github.com/getgauge/gauge/issues/492) at 50 parallel streams: 50 JVMs on a two-core box ran out of native threads before any test started. Process-per-stream is expensive when each process is a JVM.
+
+The answer then was a multithreaded mode. The core starts one runner and tells it how many streams to use, and the runner runs streams on threads inside one process. I wrote the first cut of that in the Java runner in September 2016, and Kashish and Apoorva did the work in the core to drive it. It shipped behind a setting, `enable_multithreading`, and for years it was the option you reached for when process-per-stream got too heavy.
+
+Once there's a single runner process, "once per suite" has an obvious home again. That's what [the change in May 2020](https://github.com/getgauge/gauge/pull/1644) did. When the runner talks to the core over gRPC and says it supports multithreading, the core now:
+
+1. starts one runner and initialises the suite's data store once,
+2. sends "execution starting" once, so `BeforeSuite` runs once,
+3. starts each stream as a goroutine that sends its specs to that same runner, tagged with a stream number,
+4. waits for every stream to finish,
+5. sends "execution ending" once, so `AfterSuite` runs once, then stops the runner.
+
+Getting `AfterSuite` into the right place took a second attempt; the order is the whole point, so I added tests that check the order hooks fire in, because that's the property users actually depend on. The same pull request also stopped the core starting a runner for validation and then another for execution, and started the runners for the remaining streams up front instead of lazily. The Java side was [a matching change](https://github.com/getgauge/gauge-java/pull/442) in the runner.
+
+## The decision, not the diff
+
+The part I'd point to is in the description of that pull request, because it isn't code. A runner that doesn't support multithreading still gets one process per stream, and in that mode each process still runs the suite hooks. I couldn't fix that without the coordination machinery I didn't want. So the honest position was:
+
+> All runners should support multithreading in order to get the suite hooks to run as expected.
+
+That's a statement about the plugin contract, not about one runner. It meant the Java, C# and other runners had real work to do: shared state between streams had to become thread-safe, anything stored at suite level was now shared by every stream, and any step code that assumed it owned the process was now wrong. Some of that work landed in users' own step implementations, which is the uncomfortable part. A hook that used to run in isolation now runs once while other streams wait on it.
+
+The alternative was to keep pretending process-per-stream gave you suite semantics. It didn't, and the bug report proved users had noticed.
+
+## What "once" should mean
+
+- **Name the unit a hook is scoped to.** "Suite" sounded unambiguous until parallelism split one suite across processes. If a hook is "once per X", X has to be something the system can actually see.
+- **Lifecycle belongs to whoever sees the whole run.** The core saw every stream; no runner did. Moving "start" and "end" to the core, and making runners pure executors in between, fixed the semantics without any cross-process coordination.
+- **Some fixes are contract changes.** The code fixed the threaded path. The pull request description is what told every runner maintainer, and every user writing hooks, what was now expected of them. Writing that down plainly mattered as much as the diff.
+
+---
+
+# Killing plugins politely: from a fixed timeout to keep-alives
+
+By Srikanth Venugopalan, 18 January 2019. Topics: gauge, protocols, design.
+Canonical: https://sriv.github.io/notes/gauge-killing-plugins-politely/
+
+> Gauge gave every plugin four seconds to exit after a run, then killed it. On large projects that meant killing the HTML report halfway through writing it. The fix was to let the plugin say it was still working, and it came with a limit I'd point out more loudly today.
+
+When a Gauge run finished, the core told each plugin to shut down, waited, and then killed any plugin that hadn't exited. The wait was a setting, `plugin_kill_timeout`, and its default was 4 seconds.
+
+Four seconds is plenty for a plugin that's idle. It isn't enough for one that's busy. The HTML report did most of its work after the run: it received the full result at the end, and then had to render every spec page, copy assets and build a search index. On a large project that took longer than four seconds, so Gauge killed it while it was writing, and the user got a half-written report or none at all. There were reports of this going back to January 2017, [here](https://github.com/getgauge/html-report/issues/120), [here](https://github.com/getgauge/html-report/issues/121) and [here](https://github.com/getgauge/html-report/issues/153).
+
+The workaround was to raise the timeout. That works, but it means every user with a big project has to discover the setting, and every user with a hung plugin waits longer for nothing.
+
+## The issue that framed it
+
+In September 2018 a user, Thunderforge, [opened an issue](https://github.com/getgauge/gauge/issues/1176) with a better framing than any of us had written down. Gauge kills the plugin after a fixed number of seconds, "regardless of if the plugin is actively doing work". It should instead find out whether the plugin is still doing work, and only kill it if it isn't. They suggested one way to tell: look at the timestamps of the plugin's log files.
+
+That's the right question. A fixed timeout tries to tell a slow plugin from a stuck one by how long it takes, and that can't work, because a slow plugin on a big project and a stuck one look identical for the first four seconds, and for the first forty.
+
+## Let the plugin say so
+
+Log-file timestamps are a side channel. They depend on the plugin logging regularly, on where its logs go, and on file-system timestamp granularity. The plugin already had a direct channel to Gauge, though: the socket it received messages on. The plugin is also the only party that actually knows whether it's working.
+
+So I added a message going the other way. In [gauge-proto](https://github.com/getgauge/gauge-proto/commit/a9746e1) it's called `KeepAlive`, and it carries one field, the plugin's ID. Then:
+
+- **Gauge** ([gauge#1309](https://github.com/getgauge/gauge/pull/1309), opened 18 January 2019) listens for `KeepAlive` on each plugin's connection. When it's time to shut down, it starts a kill timer for each plugin, as before. Every `KeepAlive` from that plugin resets its timer. If the timer runs out, the plugin is killed. Gauge also passes the configured `plugin_kill_timeout` to the plugin in its environment, so the plugin knows how often it needs to report in.
+- **The HTML report** ([html-report#210](https://github.com/getgauge/html-report/pull/210)) starts a background ping as soon as it receives the suite result. It sends a `KeepAlive` every half of the kill timeout, never more often than every two seconds, framed the same way as every other message on that socket: a varint length followed by the protobuf bytes. When report generation finishes, it stops pinging and exits.
+
+The effect is that the timeout stops meaning "how long a plugin may take" and starts meaning "how long a plugin may go without saying anything". A plugin doing an hour of work can take an hour, and a plugin that goes silent is still killed after four seconds. No user needs to tune anything for the common case.
+
+It's backward compatible in both directions. A plugin that never sends `KeepAlive` gets exactly the old behaviour. A newer plugin talking to an older Gauge sends messages nobody reads, which is harmless.
+
+## Small things the change had to get right
+
+Two details took more care than the idea did.
+
+**The timer is per plugin, and it only exists during shutdown.** Pings that arrive while the run is still going have no timer to reset, and Gauge ignores them. That's fine, because nothing is trying to kill the plugin then. But it means the plugin can't "bank" liveness early. It has to keep pinging until it's done.
+
+**A timer that can be reset has to be cleaned up carefully.** The old code waited on `time.After`, a fresh timer nobody else could touch. The new one is a single `time.Timer` per plugin that two goroutines care about: the shutdown path waits on it, and the keep-alive handler resets it. When the plugin exits first, the shutdown path stops the timer, and if `Stop` says it had already fired, drains its channel, so no expiry is left sitting there. It's three lines, and the kind of three lines that are easy to leave out.
+
+## The limit: alive is not the same as making progress
+
+Here's what I'd say more loudly today than I did then. The HTML report's ping ran on its own goroutine, on a ticker. It proved the process was alive and that its scheduler was running. It did not prove that report generation was getting anywhere. If the report generator had hung inside its own work loop, the ping would have kept going, and Gauge would have waited forever for a plugin that would never finish. Before the change, a stuck plugin cost four seconds. After it, a plugin stuck in the wrong way could hang the end of a CI job until the job's own timeout killed everything.
+
+The stronger version ties the ping to progress. The renderer reports "page 412 of 3,000 done", or at least only sends a heartbeat from inside its work loop, so the ping stops when the work stops. Alongside it you'd want an upper bound that no amount of pinging can extend. We had neither. In practice the HTML report didn't deadlock, so it didn't come up, but "it didn't come up" is not a design.
+
+There's also a smaller edge. Because the ping interval has a floor of two seconds, a user who set `plugin_kill_timeout` below two seconds would see the plugin killed between pings. That's an odd setting to choose, but the code accepted it.
+
+## The pattern
+
+Strip away the specifics and it's the general problem of deciding when another process has failed. The supervisor can't see inside the worker. Elapsed time is the only thing it measures directly, and elapsed time can't tell a slow worker from a stuck one. Every reasonable answer moves the evidence to the party that has it. The worker sends heartbeats, a lease it renews, or progress reports, and the supervisor only judges silence.
+
+What I'd take from Gauge's small version of it:
+
+- **A fixed timeout is a guess about the workload.** It's wrong for the big projects, and the big projects are the ones that matter.
+- **Put the evidence where the knowledge is.** The plugin knows if it's working. Ask it, over the channel you already have, not through log files.
+- **Make silence the failure, not duration.** Reset on every heartbeat, and keep the timeout short.
+- **A heartbeat from a separate thread proves liveness, not progress.** If a hang is a failure you care about, the heartbeat has to come from the work itself, and there has to be a ceiling it can't extend.
+- **Make it optional for the other side.** A worker that never heartbeats should get the old behaviour, not a new failure.
+
+---
+
+# Your protocol's worst message is the summary
+
+By Srikanth Venugopalan, 20 November 2018. Topics: gauge, protocols, design.
+Canonical: https://sriv.github.io/notes/gauge-the-worst-message-is-the-summary/
+
+> Gauge sent its report plugins one message with the entire run in it. On a big enough suite, protobuf refused to encode it. The fix was to cut the result at a boundary the format already had, and to let each plugin opt in.
+
+In November 2018 a user [reported](https://github.com/getgauge/gauge/issues/1239) that Gauge crashed before generating reports on big test runs. The HTML report plugin's log had the line that explained it:
+
+```
+Unable to connect to plugin Html Report 4.0.2. proto: message encodes to over 2 GB
+fatal error: runtime: out of memory
+```
+
+Nothing was wrong with the tests. The run had finished. What failed was the last step: telling the report plugins what happened.
+
+## One message with everything in it
+
+Gauge's core ran specs and talked to plugins over a socket using protobuf messages. Most of those messages were small and frequent: a spec started, a scenario finished. At the very end of a run, Gauge sent each reporting plugin one more message, `SuiteExecutionResult`, holding the complete result of the run: every spec, every scenario, every step, every hook, every captured message, every screenshot. The HTML, XML and JSON reports were all built from it.
+
+It was a natural design. A report is a view of the whole run, so give the reporter the whole run. It's also the one message whose size grows with everything: the number of specs, the length of each, how much each step logs, and how many screenshots it took. Every other message in the protocol was bounded by one event. This one was bounded by nothing.
+
+Protobuf has a hard ceiling of 2 GB on a single encoded message. Long before you reach it, you pay for it twice: the sender holds the entire structure plus its encoded bytes in memory, and the receiver does the same in reverse. In my [comment on the issue](https://github.com/getgauge/gauge/issues/1239#issuecomment-436520941) I put it this way: Gauge can't assume that much memory is available, so the fix is to send the result in chunks rather than move one giant `ProtoSuiteExecutionResult` across at the end.
+
+## Cut where the format already has seams
+
+The question was where to cut. Splitting the encoded bytes into arbitrary pieces would have fixed the transport and nothing else. Both sides would still need the whole thing in memory to encode and decode it, and every plugin would need new reassembly code.
+
+The result already had natural seams. A suite result is a list of spec results. A spec is a list of items: scenarios, steps, comments, tables, tags, in document order. An item is the unit a report renders. So the change, in [gauge-proto](https://github.com/getgauge/gauge-proto/pull/17) and [Gauge](https://github.com/getgauge/gauge/pull/1250), was:
+
+1. Strip the items out of every spec result, and record on each spec how many items it had.
+2. Send `SuiteExecutionResult` as before, now a skeleton: the suite totals, the spec headers, and two new fields, `chunked = true` and `chunkSize`, the number of item messages to expect.
+3. Send each item as its own message, a new `SuiteExecutionResultItem`. Each item carries a new `fileName` field so the plugin can tell which spec it belongs to.
+
+[Diagram: Before: Gauge sends the report plugin one suite result message holding every spec, step and log, which grows with the suite until protobuf refuses it at 2 GB. After: Gauge sends a skeleton marked as chunked with the item count, followed by one message per item, each carrying its spec file name so the plugin can reassemble the result. Only plugins that declare the stream_result capability receive the chunked shape.]
+
+*Same result, cut at the item boundary the format already had.*
+
+On the other side, the HTML report [collected the items](https://github.com/getgauge/html-report/pull/206) against their specs and built the report once it had received `chunkSize` of them. Apart from the skeleton, each message was now the size of one item rather than the size of the run. Encoding and decoding no longer needed one huge contiguous buffer on either side.
+
+## Who gets the new shape
+
+Gauge had more report plugins than the ones we maintained. Any plugin that received the skeleton without knowing about chunking would see specs with no items, and produce an empty report without any error. That's worse than a crash.
+
+So chunking was opt-in. A plugin declares in its `plugin.json` that it has the `stream_result` capability. When Gauge notifies plugins, it checks each one: a plugin without the capability gets the old single message, as large as it ever was, and a plugin with it gets the skeleton followed by the items. Old plugins kept working exactly as before, including failing on huge runs exactly as before, and new ones could adopt the new shape on their own schedule.
+
+The capability list outlived this change. When the plugin protocol later moved to gRPC, a plugin declared that it could speak it the same way, with `grpc_support`. Once a plugin can say what it understands, the core can add new behaviour without a flag day across every repository.
+
+## What it didn't fix
+
+Chunking fixed the protocol. It did not make the report cheap to build. The HTML plugin still accumulated every item in memory before it rendered anything, because the report it produced, with its suite-wide summary and search index, needs the whole run. A truly streaming report would have rendered each spec's page as its items arrived and kept only totals for the summary. We didn't do that. The 2 GB ceiling went away, but memory still grew with the run.
+
+The problem also came back. In November 2022 a user with about 3,000 scenarios [hit a failure](https://github.com/getgauge/gauge/issues/2305) building the HTML report. By then the plugin protocol ran on gRPC, and the report plugin capped incoming messages at 1 GB. This run sent one of 1.72 GB. There were no screenshots in it. It was response bodies the tests had logged. The [fix that time](https://github.com/getgauge/html-report/pull/291) was a setting, `gauge_max_message_size`, that raises the cap. It unblocked the user, but it's a knob, not a design. Whatever got that large still travelled as a single message.
+
+## The general version
+
+I've since run into the same shape in very different systems. A protocol that is otherwise made of small, bounded, per-event messages has one message that summarises everything, and that message works fine until the day the thing it summarises gets big. It's usually the summary at the end: the final result, the full snapshot, the "here's the state of the world" response to a reconnect.
+
+What I'd take from it:
+
+- **Look for the one message whose size isn't bounded by an event.** Go through the protocol's messages and ask what each one's size grows with. The one that grows with the history or the whole dataset is the one that will fail, and it will fail at the end, after all the work is done.
+- **Cut at the seams the data already has.** Splitting bytes fixes the transport limit and nothing else. Splitting at the structure's own units, here spec items, means each piece is meaningful, each side can process pieces independently, and the receiver can actually stream if it chooses to.
+- **Send the count up front.** The skeleton told the plugin how many items to expect, so the plugin knew when it was done without a separate end marker, and could tell if something went missing.
+- **Let the receiver opt in.** A silent wrong answer, an empty report, is worse than a loud failure. A capability declaration lets old receivers keep the old behaviour and new ones take the new shape.
+- **Raising a limit is not a fix.** It is sometimes the right thing to ship on the day, but write down that the real problem is still there.
+
+---
+
+# Shipping a risky language feature behind a flag, and what the flag cost
+
+By Srikanth Venugopalan, 28 September 2018. Topics: gauge, open-source, design.
+Canonical: https://sriv.github.io/notes/gauge-a-risky-feature-behind-a-flag/
+
+> Table-driven scenarios went into Gauge behind an experimental flag in 2018. The flag did its job: it let the core ship while everything around it caught up. It also stayed for seven years, and that part was not the plan.
+
+Gauge specs are Markdown. A spec can carry a data table, and since 2017 Gauge could run a whole spec once per row of that table, thanks to [work](https://github.com/getgauge/gauge/pull/600) by a teammate that also taught it to [run those rows in parallel](https://github.com/getgauge/gauge/pull/630). What people kept asking for was the same thing one level down: a table attached to a single scenario, so one scenario could iterate over its own rows without dragging the rest of the spec along. The [request](https://github.com/getgauge/gauge/issues/111) was opened in March 2015. In 2017 a user called it one of the main things stopping them from moving off Cucumber.
+
+On 28 September 2018 I opened [the pull request](https://github.com/getgauge/gauge/pull/1202) that added it. Its description starts with a note I added during review: the feature is experimental, disabled by default, and enabled by setting `allow_scenario_datatable=true`. This note is about why it shipped that way, and what that choice cost later.
+
+## Why this one was risky
+
+Most features in a test runner are additive. A new command, a new flag on an existing command, a new report column. You can add them without changing what an existing spec means.
+
+A scenario table is different, because it changes the language. Before the change, a table inside a scenario was just a table: a step argument, or text. After it, the same Markdown could mean "run this scenario once per row". Steps could now use dynamic parameters like `<word>` that resolve against the scenario's table, the spec's table, or both. That is a change in parsing, in resolution, and in execution, all at once. The diff touched the parser, argument lookup, the spec and scenario executors, the parallel execution path, and the protobuf messages every plugin consumed.
+
+And Gauge was not one binary. The core ran specs, but language runners for Java, C#, Python, Ruby and JavaScript executed the steps, and separate plugins built the HTML, XML and JSON reports. The IDE plugins parsed specs themselves. A language change in the core is only finished when every one of those understands it, and they were separate repositories with their own release cycles.
+
+The pull request's to-do list was honest about this. Execution worked: steps resolved their parameters from the scenario table, a scenario ran once per row, and a scenario that didn't use the table ran once. But the suite result didn't carry the per-row results properly yet, the HTML report didn't know about any of it, and every row's scenario result held its own copy of the whole table, which I flagged as wasteful and in need of a backward-compatible fix.
+
+## What the flag was for
+
+There were two other options. One was to hold the change until the core, the reports and the IDE plugins were all ready, and release them together. In an open-source project with a few maintainers and many repositories, that means the branch rots while you wait. The other was to turn it on for everyone and fix the reports as complaints arrived. Since the feature changes what existing Markdown means, that risked changing the behaviour of specs people had already written.
+
+The flag gave a third path. The parser only treats a table under a scenario as a scenario table when the flag is set. With the flag off, nothing about an existing spec changes. With it on, people who wanted the feature badly enough could use it, knowing the console output was right and the HTML report was not. It merged on 16 October 2018 and shipped in Gauge 1.0.3.
+
+That part worked as intended. People found it, turned it on, and told us what broke.
+
+## What the flag didn't protect against
+
+The first thing that broke was me. A user asked whether a scenario could load its table from an external CSV file, the way a spec could. I [said yes](https://github.com/getgauge/gauge/pull/1202#issuecomment-443392044). A few weeks later someone tried it, got a parse error, and I had to [correct myself](https://github.com/getgauge/gauge/pull/1202#issuecomment-449906270): it only worked with inline tables. Later that day I [admitted](https://github.com/getgauge/gauge/pull/1202#issuecomment-449913828) the feature was too rough to recommend yet, mostly because the reports didn't support it. External tables at scenario level were [logged separately](https://github.com/getgauge/gauge/issues/1569) and never got done. The lesson I took was small but real: when a feature is half-finished, you can't answer questions about it from what you meant to build. Answer from what's in the code.
+
+The second was a crash, and it was not behind the flag at all. In November 2019 a user running `gauge run --parallel --only <tags>` got a [nil-pointer panic in the HTML report](https://github.com/getgauge/gauge/issues/1529). The cause was in code I'd written for the feature. When parallel runs produce partial results for the same spec, Gauge merges them, and my merge marked the merged spec as table-driven unconditionally. The report plugin believed that, went looking for table rows that didn't exist, and crashed. [The fix](https://github.com/getgauge/gauge/pull/1530) was a few lines: mark it table-driven only if one of the inputs was.
+
+That bug is the useful one. A flag protects you from new behaviour leaking into old specs. It doesn't protect the code paths you had to change on the way, and you change a lot of them for a language feature. The merge path was shared between flagged and unflagged runs, so a mistake in it reached everyone.
+
+## The cost: seven years
+
+Then the flag simply stayed. The core was usable, so the pressure to finish went away. The parts left to do were the unglamorous ones, in other repositories. Each year a few issues arrived: [the flag not working](https://github.com/getgauge/gauge/issues/1565) because of the external-table limit, results [summed up wrong](https://github.com/getgauge/gauge/issues/1802) for some spec shapes, and in 2024 the copy-per-row design I'd flagged in 2018 coming back as [a memory problem](https://github.com/getgauge/gauge/issues/2528) for large tables.
+
+An experimental flag is a promise that the feature will either graduate or be removed. Nobody owned that promise, me included, and a promise nobody owns is not kept.
+
+It was kept in the end because a contributor, Jens Johansson, opened [an issue](https://github.com/getgauge/gauge/issues/2790) in October 2025 with the goal stated plainly: remove the flag and make the feature the default. He'd worked out the current state, listed what was broken, and asked the right design questions, such as whether scenario tables should be allowed inside table-driven specs at all. Another user answered that they relied on exactly that combination for test matrices, so it stayed.
+
+That gave me a reason to come back. In [one pull request](https://github.com/getgauge/gauge/pull/2791) I fixed the scenario counts, the parameter validation and the JSON reporter, and deleted `allow_scenario_datatable`. That was 27 October 2025, seven years and a month after the flag went in. Jens then did the larger part of the remaining work: making the results sent to the report plugins say whether a scenario was driven by the spec table, the scenario table or both, with the [row it came from](https://github.com/getgauge/gauge/pull/2798).
+
+For the memory problem I [took a different approach](https://github.com/getgauge/gauge/pull/2792): instead of creating every row's scenario up front, create each one when it's about to run. In the pull request's micro-benchmark, setting up a 1,000-row table went from about 9,000 allocations to 3. Most of that saving is deferred work, not removed work, because each scenario is still built when it runs. But it's only built when it's needed, and it can be dropped once it's done. That pull request is still open, and it adds a flag too: `scenario_init_strategy`, defaulting to `eager`. I noticed the irony. This time the flag exists to keep the old behaviour while people try the new one, and the exit condition is written into the PR: if the feedback is good, lazy becomes the default.
+
+## What I'd keep and change
+
+I'd use the flag again. For a change to what a language means, in a project spread across many repositories, it was the right tool. It let the core ship, it kept existing specs safe, and it put the feature in front of the people who wanted it.
+
+What I'd change is everything around it:
+
+- **Give the flag an exit condition when you add it.** "Experimental until the HTML report and the IDE plugins support it" is a list you can check. "Experimental" on its own never ends.
+- **Treat shared code paths as unflagged.** Anything the flagged feature changed that the unflagged path also runs needs the same care as a normal release. The 2019 panic came from exactly there.
+- **Write the known debt into the code, not only the pull request.** The copy-per-row note was in a 2018 PR description. It came back as a bug in 2024, and nobody reading the code would have seen it coming.
+- **Answer from the code.** Especially about a half-finished feature you wrote yourself.
+
+The feature is finished now, and it's default behaviour. It got there because someone outside the original team cared enough to write down what "done" meant. That's a good outcome, but not a good process to depend on.
+
+---
+
+# Deprecate, don't delete
+
+By Srikanth Venugopalan, 21 March 2018. Topics: gauge, protocols, compatibility.
+Canonical: https://sriv.github.io/notes/gauge-deprecate-dont-delete/
+
+> Gauge's plugins were written in half a dozen languages, and all of them shared one set of protocol buffer definitions. A small rename taught me that a shared schema has more than one kind of compatibility, and the rule I set afterwards still holds.
+
+Gauge is a small core with a lot of plugins. The language runners execute steps in Java, C#, Ruby, Python, JavaScript and Go. Reporters such as the HTML report turn results into something people read. The editor integrations sit on top. They're separate repositories, released on separate schedules, and often maintained by different people. Each one talks to the core over messages defined in one shared repository, [gauge-proto](https://github.com/getgauge/gauge-proto), which every plugin pulls in and compiles into its own language.
+
+That shared repository is a contract, and in early 2018 I learned that it has more than one side.
+
+## A rename that looked free
+
+In December 2017 the team added fields to carry messages written from hooks onto the report: `preHookMessage` and `postHookMessage` on specs, scenarios and suite results. A few days later they were renamed to the plural, `preHookMessages` and `postHookMessages`, because they're repeated fields. The [rename](https://github.com/getgauge/gauge-proto/commit/26968b9e) kept the field numbers.
+
+On the wire, that's free. Protocol buffers identify a field by its number, not its name. An old runner sending field 8 and a new reporter reading field 8 agree, whatever each of them calls it, so nothing in a running installation breaks.
+
+But wire format isn't the only contract. Every plugin compiles the definitions into code, and the names become the generated names: `getPreHookMessage()` in Java, `PreHookMessage` in Go, the corresponding property in C#. The next time any plugin updated its copy of gauge-proto, code that used the old name stopped compiling, in whichever language that plugin was written in. With protocol buffers there are at least three kinds of compatibility, and a change can keep one and break another:
+
+| What's shared | Identified by | A rename |
+|---|---|---|
+| The binary wire format | field numbers | keeps it |
+| The generated code in each language | field names | breaks it |
+| JSON or text renderings of a message | field names | breaks it |
+
+In a single repository you'd rename, fix every call site, and move on. With plugins in six languages in separate repositories, there's no single change that fixes all the call sites. Each plugin finds out on its own, at whatever point it next updates the shared definitions.
+
+## The rule
+
+At the time I was chasing a set of bugs in which messages written from tests weren't showing up in the HTML report, across more than one plugin ([gauge#970](https://github.com/getgauge/gauge/issues/970), [html-report#111](https://github.com/getgauge/html-report/issues/111), [gauge-csharp#117](https://github.com/getgauge/gauge-csharp/issues/117)). On 21 March 2018, while working through them, I opened [gauge-proto#11](https://github.com/getgauge/gauge-proto/pull/11), titled "deprecate instead of removing message fields".
+
+It brought the old names back, as new fields marked deprecated, next to the new ones:
+
+```protobuf
+/// [DEPRECATED, use preHookMessages] Additional information at pre hook exec time
+repeated string preHookMessage = 10 [deprecated=true];
+```
+
+That way any plugin built against either version of the definitions compiled, and the deprecation showed up as a warning instead of a broken build. A field keeps its meaning for good. A replacement is a new field with a new number. The old one is marked deprecated, documented as such, and stays until nobody reads it.
+
+The rule I'd write down for anyone sharing protocol buffer definitions across repositories:
+
+1. **Never change what a field number means.** Not its type, and not its meaning.
+2. **Never reuse a number.** If a field really goes away, reserve its number and its name so nobody can bring them back with a different meaning.
+3. **Don't rename.** To a consumer in another repository, a rename is a removal plus an addition.
+4. **Replace by adding.** New field, new number, old one marked deprecated, with a note saying what to use instead.
+5. **Remove last, and on purpose.** Only once you know nothing still reads the old field, and in a release that says so.
+
+## Seven years later
+
+In July 2025 a user asked for timestamps in RFC 3339 format ([gauge#2764](https://github.com/getgauge/gauge/issues/2764)), because the human-readable format Gauge used couldn't tell apart runs that were close together. Changing the existing `timestamp` field's format would have been the smallest diff. It would also have silently broken every reporter that parses the old format, and nothing in the schema would have told them.
+
+So [gauge-proto#111](https://github.com/getgauge/gauge-proto/pull/111) followed the same rule: `timestamp` marked deprecated, and a new `timestampISO` field added next to it on suite, spec, scenario and step results. Old reporters keep reading what they understand, and new ones can switch when they're ready.
+
+The rule doesn't mean nothing ever breaks. In early 2024 I bumped Gauge's minor version in [#2457](https://github.com/getgauge/gauge/pull/2457), and titled the change for exactly what it was: it breaks backward compatibility with plugins. When a break is unavoidable, the version number should say it, and the title should say it too, so that nobody has to work it out from a bug report.
+
+## The rule, as I'd write it now
+
+**A shared schema is an API with several consumers per change.** The wire is one consumer. The generated code in every language is another. Anything that renders messages by name is a third.
+
+**Compatibility is only as wide as the narrowest of those.** "It's binary compatible" is a true statement about one of them.
+
+**Additive change is the cheap kind.** A deprecated field costs a few bytes of schema and a line of documentation. A breaking change costs every downstream maintainer an afternoon, at a time they didn't choose.
+
+**Make the break obvious when you have to make one.** Say it in the version number and in the title, and don't leave it for a downstream maintainer to discover.
+
+---
+
+# IDE support, before and after the Language Server Protocol
+
+By Srikanth Venugopalan, 29 November 2017. Topics: gauge, developer tools, protocols.
+Canonical: https://sriv.github.io/notes/gauge-ide-support-before-and-after-lsp/
+
+> I wrote Gauge's Visual Studio plugin in 2014, when every editor needed its own. Three years later the project moved to a language server. What moved into the server, and what still didn't fit in the protocol.
+
+Gauge specifications are Markdown files, and the steps in them are bound to code in Java, C#, Ruby, Python or JavaScript. That makes editor support unusually important for a tool like Gauge. A spec is only pleasant to write if the editor can autocomplete steps you've already implemented, jump from a step to its code, flag a step nobody has implemented yet, and run a scenario from where you're looking at it.
+
+For the first few years, each editor got that through its own plugin.
+
+## One plugin per editor
+
+I started the [Visual Studio plugin](https://github.com/getgauge/gauge-visualstudio) in October 2014. My first autocomplete commit is from 26 October. Within a couple of months it had syntax highlighting for steps, parameters and tags, go-to-definition from a step to its implementation, autocomplete for concepts and nested concepts, highlighting of unimplemented steps, and an action that generated a stub implementation for one. The plugin also hooked into Visual Studio's test runner, so specs and scenarios showed up as tests.
+
+The design was simple. The plugin didn't parse specs itself. From the start it asked a running Gauge process. Gauge exposed an API over a socket, with messages defined in protocol buffers, and the plugin sent requests such as "give me all the steps" and turned the answers into completions. That split was the right instinct, and I'd keep it: Gauge already knew how to parse specs, so the editor shouldn't learn to do it a second time.
+
+What the split didn't remove was everything around the request. For each feature, the Visual Studio plugin still needed:
+
+- the code that starts a Gauge daemon for the open project, waits for it, and handles the cases where Gauge isn't installed or the daemon fails to start;
+- the caching, plus file watchers to know when the cached steps had gone stale;
+- the mapping from Gauge's answers to Visual Studio's own types for classifiers, completions, glyphs and test cases;
+- the integration with debugging, in a way that differed between Visual Studio versions.
+
+All of it was in C#, against Visual Studio's extension APIs. The IntelliJ plugin, which teammates maintained, did the same work in Java against IntelliJ's APIs. Every editor feature was built once per editor, in that editor's language, by whoever knew that editor. That isn't something a small team can keep up for long.
+
+By 2016 the plugin had moved test execution onto a gRPC execution API in Gauge, and that helped. But that moved one feature to a shared API. It didn't move the rest.
+
+## The language server
+
+The Language Server Protocol fixed exactly that shape of problem. The editor speaks one standard protocol for completion, go-to-definition, diagnostics, formatting, symbols and code actions, and a server that understands the language answers. A thin client is enough to get a new editor most of the way.
+
+Gauge's language server came from the team in 2017. Its first commit, in July, did autocomplete. Over the following months teammates added completion for parameters, formatting, execution, and validation errors as diagnostics. The server lived inside Gauge itself, and that mattered: the parser, the validation and the step index that the CLI used were the same ones the editor saw. A step that failed validation on the command line got the same diagnostic in the editor.
+
+My part was in late 2017, next to the new [VS Code extension](https://github.com/getgauge/gauge-vscode). On 29 November I opened [#883](https://github.com/getgauge/gauge/pull/883), which added document symbols and workspace symbols, so that you could jump to any spec or scenario by name in an editor that supports the protocol. The week before, I'd done the change that taught me the most about where the protocol ends.
+
+## What didn't fit
+
+VS Code wanted a test explorer for scenarios ([gauge-vscode#42](https://github.com/getgauge/gauge-vscode/issues/42)): a tree of specs and scenarios that you could run from the sidebar. The Language Server Protocol had nothing for that. It knows about documents, symbols and positions. It doesn't know what a test is, or which test belongs to which file, or what it means to run one.
+
+So [#870](https://github.com/getgauge/gauge/pull/870) added a custom request, `gauge/specs`, which returns the headings of every spec in the project. It's a small change. It's also a reminder that a standard protocol covers what all languages have in common, and a test tool's most important features are the parts that aren't common:
+
+- Which scenarios exist, and in which spec.
+- Running one of them, or a set of them, and reporting results while they run.
+- Debugging a step, which means a runner in another language has to be started in debug mode and an editor has to attach to it.
+
+Every one of those became a custom request or a feature in the editor extension. The editor-specific code didn't disappear. It got smaller and moved to the edge, and the part that changed most often, the understanding of specs, was written once, inside Gauge.
+
+## Where the standard stops
+
+**Put the understanding in the tool, from the start.** The 2014 plugin got this right before LSP existed: ask Gauge, don't re-parse. Everything that later moved into the language server was already behind an API. What LSP added was a standard way for every editor to ask.
+
+**A standard protocol covers what all languages share.** For a test tool, the valuable part is running things, and the protocol had no word for it. Plan for custom requests, keep them few, and keep them in the same server, so that editors don't fall back to building their own.
+
+**The cost of an editor plugin is the glue around each feature.** Lifecycle, caching, staleness, and mapping to the editor's types. A feature list doesn't show it, which is why one plugin per editor looked affordable until there were several.
+
+The Visual Studio plugin is archived now, and so is the IntelliJ one. The VS Code extension and the language server carried on. I don't mind that ending for the plugin I wrote. It was the right design for 2014, and parts of it, asking Gauge rather than re-parsing, carried straight over into what replaced it.
+
+---
+
+# Telemetry we added, then deleted
+
+By Srikanth Venugopalan, 5 June 2017. Topics: gauge, open source, privacy.
+Canonical: https://sriv.github.io/notes/gauge-telemetry-we-added-then-deleted/
+
+> In 2017 I wired anonymous usage telemetry into Gauge. Two years later we took it all out. Adding it took a few weeks; most of what I learned was about the parts around the ping.
+
+Gauge was built by a small team. We didn't have the time to run user studies or surveys, and we wanted to know which commands and flags people actually used before we changed or deprecated any of them. So in May 2017 the team opened two issues: give every installation an anonymous identifier ([#653](https://github.com/getgauge/gauge/issues/653)), and collect statistics on which commands get run ([#658](https://github.com/getgauge/gauge/issues/658)). I picked them up, and on 5 June 2017 I opened [the pull request](https://github.com/getgauge/gauge/pull/665) that introduced an install ID and sent anonymous events to Google Analytics.
+
+The ping itself was the easy part. A UUID per installation, saved under the user's Gauge config directory. An event per command, sent over the Measurement Protocol, with the IP address anonymised. The rule in the issue was strict and it was the right rule: never record anything specific to the user's project. `gauge run myspecfolder` records that `run` happened, not the folder. `--dir="../"` records nothing about the directory. What we tracked was the language and plugins in the manifest, which execution flags were used (tags, parallel, sort, verbose), and whether refactoring was used, without its parameters.
+
+Everything else took longer than the ping.
+
+## Opt-in or opt-out
+
+The first decision was the default, and I argued for opt-out: on by default, with an easy way to turn it off. The reason I gave at the time was that unattended runs would otherwise never show up. A large share of Gauge runs happened in CI, where nobody is around to answer a prompt, and an opt-in default would have told us about laptops and nothing about pipelines.
+
+That reasoning holds up, but I'd frame the decision differently now. Opt-out isn't a technical default; it's a promise you make to every user who never reads the docs. Keeping that promise is what the rest of this note is about.
+
+The code went in with telemetry disabled while we tested it against a separate analytics account, and the team turned it on for the 0.9.0 release in July 2017. The same day, the project published a post, [Why we collect data](https://gauge.org/2017/07/20/why-we-collect-data/). It said what was collected, where it was stored, who could see it, and how to turn it off. I still think the post mattered as much as the code.
+
+## Human or machine
+
+Once events were flowing, the first problem was that one CI server could run Gauge thousands of times a day, and those runs looked exactly like people. So I added a CI flag to every event ([#702](https://github.com/getgauge/gauge/issues/702)). There's no single standard way to detect CI, so it was a table: `GO_SERVER_URL` for GoCD, `JENKINS_URL` for Jenkins, the TeamCity variable, and `CI=true` for Travis, AppVeyor, CircleCI and the rest. It's an unglamorous list, and it's what made the numbers mean anything: human usage and machine usage answer different questions.
+
+## Fast commands lose their events
+
+Testing turned up something I hadn't expected: quick commands weren't being recorded at all. `gauge uninstall`, `gauge format`, `gauge install` with no arguments. The command finished and the process exited before the HTTP request did. The fix was to make those commands wait for the telemetry request before exiting. That trades a little latency for complete data, and if I did it again I'd put a short timeout on the wait, so a slow network can't hold up someone's terminal.
+
+It's a small bug, but it changes what you can trust. A sampling bias like that doesn't show up as an error. It shows up as "nobody uses `format`", which is exactly the kind of conclusion telemetry was supposed to make safe.
+
+## Off has to be easy in every place Gauge runs
+
+`gauge telemetry off` worked for someone at a terminal. It didn't work for a Docker image, a CI agent built from a script, or a corporate machine provisioned by an installer. So "off" had to exist everywhere:
+
+- An environment variable, `GAUGE_TELEMETRY_ENABLED`, that takes priority over the config file ([#736](https://github.com/getgauge/gauge/issues/736)), with a message that tells you when the variable is the thing deciding.
+- A page in the Windows installer to turn it off, and a `/TELEMETRY off` switch for silent installs ([#741](https://github.com/getgauge/gauge/pull/741)). Teammates added the same for the macOS and Linux installers.
+- Our own CI pipelines, where we turned telemetry off, so that we weren't counting ourselves.
+
+## Telling people, every time
+
+A year later the team felt that opt-out needed to be more visible ([#1121](https://github.com/getgauge/gauge/issues/1121)). The change was that every `gauge run` would say that telemetry was on and point at how to change it, until the user made an explicit choice. I implemented that in [#1123](https://github.com/getgauge/gauge/pull/1123): Gauge now recorded whether you had actually chosen, not just the current value, and the notice went away once you had. Saying "on" counted as a choice, and so did saying "off".
+
+That's the version I'd start with next time. The notice made opt-out much closer to informed consent, at the cost of one line of output. It's also what a user who never reads the docs actually sees.
+
+## Taking it out
+
+In October 2019 the team decided Gauge no longer needed to keep the data, and [#1490](https://github.com/getgauge/gauge/issues/1490) listed what removing it meant:
+
+1. the telemetry code in Gauge
+2. the telemetry code in Gauge's JavaScript packaging
+3. the telemetry messages
+4. the telemetry configuration
+5. the telemetry prompts in the VS Code extension
+6. the unique ID generation
+7. the documentation
+8. the blog post
+9. the analytics account itself
+
+Removing it took a teammate's [pull request](https://github.com/getgauge/gauge/pull/1511) and a few weeks, and the `telemetry` command stayed behind as deprecated, so that scripts calling it wouldn't break. The blog post now opens by saying that Gauge no longer collects telemetry, which I think is the right way to leave it: anyone who reads the old explanation sees straight away that it no longer applies.
+
+## What I'd keep
+
+Nine items is the honest measure of what the feature cost. The ping was one of them. The rest was everything a promise to users touches: the installers, the editor extension, the config, the docs, a public post. If I add telemetry to a tool again, I'd write that removal list first, before the first event is sent. Then everyone knows what the feature costs to remove, and it's easier to keep it to what you'd be willing to explain.
+
+The other things I'd keep:
+
+- **Never record anything about the user's project.** Command names and flags, never paths or values.
+- **Mark machine runs.** Without a CI flag, the numbers mostly describe CI.
+- **Check that short commands still get counted.** Missing data is a bias, and it never shows up as an error.
+- **Make off work wherever the tool runs.** Command, environment variable, installer.
+- **Tell people, until they've chosen.** One line of output, until the user has picked either way.

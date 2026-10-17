@@ -18,11 +18,11 @@ layout: base
     {{ content }}
   </div>
 
-  {%- if page.chapter %}
-  {%- assign chapters = site.posts | where_exp: "p", "p.chapter" | sort: "chapter" %}
+  {%- if page.when %}
+  {%- assign chapters = site.posts | where_exp: "p", "p.when" | sort: "when" %}
   <nav class="chapter-nav" aria-label="Notes">
     {%- for p in chapters %}
-      {%- if p.chapter == page.chapter %}
+      {%- if p.url == page.url %}
         {%- assign pi = forloop.index0 | minus: 1 %}
         {%- assign ni = forloop.index0 | plus: 1 %}
         {%- if forloop.first == false %}{% assign prev = chapters[pi] %}<a class="prev" href="{{ prev.url | relative_url }}"><span>Previous</span>{{ prev.title }}</a>{% endif %}

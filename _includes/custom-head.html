@@ -2,7 +2,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Kalam:wght@400;700&display=swap" rel="stylesheet">
 <link rel="alternate" type="text/plain" title="Index for language models" href="{{ '/llms.txt' | absolute_url }}">
-{%- if page.chapter %}
+{%- if page.when %}
 {%- assign slug = page.url | split: '/' | last %}
 <link rel="alternate" type="text/markdown" title="This note as markdown" href="{{ '/notes/' | append: slug | append: '.md' | absolute_url }}">
 {%- endif %}

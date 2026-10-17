@@ -2,7 +2,7 @@
 layout: post
 title: "Indexes in an analytical engine: how they work and when they pay"
 tags: [indexes, iceberg]
-chapter: 12
+when: 2026-08-23
 period: "23 August 2026"
 dek: "In an engine that reads files from object storage, most indexes exist to rule data out; a few point straight at rows. How each kind works, when it pays, where Iceberg's Puffin files fit, and what building them taught me."
 ---

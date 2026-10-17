@@ -3,7 +3,7 @@ layout: post
 title: "Spot instances and the query that must not die"
 redirect_from: /journal/spot-instances-and-the-query-that-must-not-die/
 tags: [distributed, cloud]
-chapter: 8
+when: 2025-10-05
 period: "5 October 2025"
 dek: "Spot capacity is the cheapest compute a cloud will sell you, and it comes with a short warning before it's taken back. Deciding where in the stack to absorb that warning was the interesting part."
 ---

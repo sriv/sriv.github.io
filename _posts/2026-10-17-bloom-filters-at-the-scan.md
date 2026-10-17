@@ -3,7 +3,7 @@ layout: post
 title: "Bloom filters at the scan"
 redirect_from: /journal/bloom-filters-at-the-scan/
 tags: [parquet, indexes]
-chapter: 2
+when: 2024-07-20
 period: "20 July 2024"
 dek: "Parquet already knows how to say \"this value isn't here\". Getting an engine to ask cheaply, and to never trust a wrong answer, was the actual work."
 ---
