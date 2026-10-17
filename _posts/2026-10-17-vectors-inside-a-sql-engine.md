@@ -2,7 +2,7 @@
 layout: post
 title: "Vectors inside a SQL engine"
 chapter: 4
-period: "November and December 2024"
+period: "17 December 2024"
 dek: "Everyone was standing up a separate vector database. We tried making similarity search just another thing the query engine could do."
 ---
 
@@ -27,7 +27,7 @@ LIMIT 10;
 
 The engine embeds the query string once, compares it against the stored vectors for `review_title`, and returns rows. The user never touches a vector.
 
-We went with the second. A query engine's job is to hide physical layout from the person writing SQL. Making them handle 768 or 1,536 floats per row felt like the same mistake as making them pick which Parquet row groups to read. The embeddings became, in effect, a hidden column the engine owns: created with a `LOAD VECTOR` step, kept beside the table's own files, and used only through functions like `cosine_distance`.
+We went with the second. A query engine's job is to hide physical layout from the person writing SQL. Making them handle 768 or 1,536 floats per row felt like the same mistake as making them pick which Parquet row groups to read. The embeddings became, in effect, a hidden column the engine owns: created by a separate `LOAD VECTOR` job rather than inside anyone's ingestion pipeline, kept beside the table's own files, and used only through functions like `cosine_distance`.
 
 {% include diagrams/vector-column.svg %}
 
@@ -57,7 +57,7 @@ The cost is obvious: you read every surviving vector. That is fine when filters 
 
 The last open question in December was physical: what format should the vectors be stored in? We had three obvious candidates. Parquet, because everything else was Parquet. Avro, because a row-oriented format reads whole vectors in one go. And Lance, a newer columnar format built with vectors in mind.
 
-I wrote benchmarks to read embeddings through all three in the engine's own scan path. What I learned from that exercise is the subject of the next chapter, which is about the things we tried and threw away. The short version: none of them fit the way our engine wanted to read vectors from object storage, and in January we ended up writing our own.
+I wrote benchmarks to read embeddings through all three in the engine's own scan path. The next chapter covers why we didn't adopt any of them, and how that led to writing our own format in January.
 
 ## What I'd tell a team starting on this
 

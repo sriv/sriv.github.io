@@ -5,7 +5,7 @@ layout: base
 
   <header class="post-header">
     {%- if page.period %}
-    <p class="post-meta chapter-period">{{ page.period }}{% if page.chapter %}, chapter {{ page.chapter }}{% endif %}</p>
+    <p class="post-meta chapter-period">{{ page.period }}</p>
     {%- elsif page.archive %}
     <p class="post-meta">{{ page.date | date: "%b %-d, %Y" }}, from the old blog</p>
     {%- endif %}

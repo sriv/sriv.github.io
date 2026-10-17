@@ -2,7 +2,7 @@
 layout: post
 title: "Let the queries build the index"
 chapter: 3
-period: "August to December 2024"
+period: "4 December 2024"
 dek: "Most Parquet files don't carry bloom filters, and we didn't control the writers. So the engine started building its own indexes from data it was reading anyway."
 ---
 
