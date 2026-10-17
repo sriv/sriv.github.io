@@ -20,7 +20,7 @@ Step 1 touches everything but needs very little of each vector. Step 3 needs ver
 
 Now put that on object storage. The cost model there is simple. Every request has a fixed latency and, in most clouds, a price. Bytes are relatively cheap once a request is in flight. A good file format for object storage keeps the number of requests small and makes each one count.
 
-General-purpose formats are built for a different pattern: scan a lot of rows, a few columns at a time, and compress well along the way. Floating-point embeddings barely compress. Pulling ten specific vectors out of a columnar file means decoding the pages they live in. Nothing in the file says "row 48,213 starts at byte X".
+General-purpose formats are built for a different pattern: scan a lot of rows, a few columns at a time, and compress well along the way. Floating-point embeddings barely compress. Pulling ten specific vectors out of a compressed columnar file means downloading and decoding the whole pages they live in. Nothing in a Parquet file says "row 48,213 starts at byte X".
 
 ## The design
 
@@ -47,7 +47,7 @@ Answering a nearest-neighbour query against one Blitz file goes like this:
 1. **Read the footer.** One request for the tail, one for the footer. Footers are cached across queries, along with the file length, so a warm query doesn't even need those.
 2. **First pass, entirely in memory.** Binary-quantize the query vector once. For each row that survived pruning and the query's filters, compute the Hamming distance between its bits in the footer and the query's bits. That's an XOR and a popcount per word. Keep the closest *K*, where *K* comes from the query's `LIMIT`, pushed down to the scan.
 3. **Second pass, a few targeted reads.** Look up the byte offsets of those *K* rows. Sort the ranges, merge any that sit close together, and fetch them with parallel ranged reads. Compute the exact distance on the full-precision vectors.
-4. **Merge across files.** Each file contributes its own top *K*. A final operator collects every file's candidates and reranks them into the global top *K*.
+4. **Merge across files.** Each file contributes its own top *K*. A final operator collects every file's candidates, already scored at full precision, and orders them into the global top *K*.
 
 The arithmetic is what makes it work. A 1,536-dimension embedding is 6 KB at full precision and 192 bytes as bits, 32 times smaller. The first pass runs over the small copies, which already sit in memory. The second pass touches a handful of full vectors with a handful of requests. Nothing reads the whole body.
 
@@ -59,7 +59,7 @@ The arithmetic is what makes it work. A 1,536-dimension embedding is 6 KB at ful
 
 **Count requests, not bytes.** Sorting and merging nearby ranges before fetching is cheap to do, and on object storage it goes straight at the cost that matters.
 
-**Own the small thing.** The writer and reader together are a few hundred lines. Being small enough to read in one sitting is a feature for a format that sits on a query's critical path.
+**Own the small thing.** The writer and reader together are a few hundred lines. Being small enough to read in one sitting, and to debug with a hex dump, is a real feature for a format that sits on a query's critical path.
 
 ## What it doesn't do
 
