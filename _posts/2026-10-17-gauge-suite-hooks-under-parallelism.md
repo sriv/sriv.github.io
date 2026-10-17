@@ -21,7 +21,7 @@ You can't fix that inside a runner. Four processes don't know about each other, 
 
 ## The threads were already there
 
-The way out had been built years earlier for a different reason. In 2016 a user [reported Gauge crashing](https://github.com/getgauge/gauge/issues/492) at 50 parallel streams: 50 JVMs on a two-core box ran out of native threads before any test started. Process-per-stream is expensive when each process is a JVM.
+The way out had been built years earlier for a different reason. In 2016 a user [reported Gauge crashing](https://github.com/getgauge/gauge/issues/492) at 50 parallel streams: 50 JVMs on a two-core box ran out of native threads before any test started. Process-per-stream gets expensive fast when every process is a full JVM.
 
 The answer then was a multithreaded mode. The core starts one runner and tells it how many streams to use, and the runner runs streams on threads inside one process. I wrote the first cut of that in the Java runner in September 2016, and Kashish and Apoorva did the work in the core to drive it. It shipped behind a setting, `enable_multithreading`, and for years it was the option you reached for when process-per-stream got too heavy.
 
