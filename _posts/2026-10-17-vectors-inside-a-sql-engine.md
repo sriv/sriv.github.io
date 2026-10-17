@@ -9,7 +9,7 @@ dek: "Everyone was standing up a separate vector database. We tried making simil
 
 At the end of 2024 every conversation about search seemed to start with "which vector database?". The usual shape was a second system next to the warehouse: copy the text out, embed it, load the vectors into a dedicated store, and join the results back to the tables in application code.
 
-We already had an engine that was good at scanning large tables in object storage, with the indexes and pruning from the last three posts. In November I started on the other option: make similarity search something the SQL engine does itself, over the tables people already have.
+We already had an engine that was good at scanning large tables in object storage, with the indexes and pruning from [bloom filters](/notes/bloom-filters-at-the-scan/) and [lazily built indexes](/notes/let-the-queries-build-the-index/). In November I started on the other option: make similarity search something the SQL engine does itself, over the tables people already have.
 
 ## The decision: a column, not a database
 
@@ -38,7 +38,7 @@ Computing an embedding is the expensive part, so the first question was when to 
 
 My first version called a hosted embedding API. That was enough to get the load path working end to end, and it also made the trade-offs obvious: every row of the customer's text leaves the cluster, throughput depends on someone else's rate limits, and cost scales with table size. Within a week I'd moved the load path onto a self-hosted embedding server running next to the engine. Same interface, but the model runs where the data is and the throughput is ours to scale.
 
-The detail that mattered most was keeping vectors aligned with the files they describe. Each data file gets its own set of embeddings, so when the engine prunes a file using everything from the earlier posts, it skips that file's vectors too. Similarity search inherits the scan's pruning for free, and filters like `WHERE rating < 3` cut down the work before any distance is computed.
+The detail that mattered most was keeping vectors aligned with the files they describe. Each data file gets its own set of embeddings, so when the engine prunes a file using its indexes and statistics, it skips that file's vectors too. Similarity search inherits the scan's pruning for free, and filters like `WHERE rating < 3` cut down the work before any distance is computed.
 
 ## Brute force, on purpose
 
@@ -58,7 +58,7 @@ The cost is obvious: you read every surviving vector. That is fine when filters 
 
 The last open question in December was physical: what format should the vectors be stored in? We had three obvious candidates. Parquet, because everything else was Parquet. Avro, because a row-oriented format reads whole vectors in one go. And Lance, a newer columnar format built with vectors in mind.
 
-I wrote benchmarks to read embeddings through all three in the engine's own scan path. The next post covers why we didn't adopt any of them, and how that led to writing our own format in January.
+I wrote benchmarks to read embeddings through all three in the engine's own scan path. [What we tried and threw away](/notes/what-we-tried-and-threw-away/) covers why we didn't adopt any of them, and how that led to writing our own format in January.
 
 ## What I'd tell a team starting on this
 

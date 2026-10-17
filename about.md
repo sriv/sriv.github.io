@@ -15,7 +15,7 @@ Most of what I care about comes down to a few beliefs:
 
 Before data infrastructure I spent a long stretch on developer tooling. From 2015 to 2021 I was the lead developer of [Gauge](https://gauge.org), the open-source test automation framework sponsored by ThoughtWorks, and I've carried on as an open-source maintainer in my individual capacity since. That's where I learnt to care about the people on the other end of an API.
 
-The [notes](/) are write-ups of the engine work, in order, with the decisions and the mistakes left in.
+The [notes](/) are write-ups of the engine work, with the decisions and the mistakes left in.
 
 Elsewhere: [GitHub](https://github.com/sriv) and [LinkedIn](https://www.linkedin.com/in/srikanth-v-6393b922/).
 

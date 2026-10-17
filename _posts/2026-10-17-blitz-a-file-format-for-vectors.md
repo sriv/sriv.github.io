@@ -7,7 +7,7 @@ period: "25 February 2025"
 dek: "Vector search wants a handful of vectors out of millions, at full precision, from storage that charges you per request. No format we tried was built for that, so we wrote a small one that was."
 ---
 
-The [previous post](/notes/what-we-tried-and-threw-away/) ended with a vector database library taken back out of the engine and a decision to write our own format. Three days later, on 6 January, the first version of **Blitz** went in. By the end of February it had the shape it kept. I talked about it at Rootconf in 2025. This is the written version, with a bit more of the reasoning.
+[What we tried and threw away](/notes/what-we-tried-and-threw-away/) ended with a vector database library taken back out of the engine and a decision to write our own format. Three days later, on 6 January, the first version of **Blitz** went in. By the end of February it had the shape it kept. I talked about it at Rootconf in 2025. This is the written version, with a bit more of the reasoning.
 
 ## What the access pattern looks like
 
@@ -33,7 +33,7 @@ Blitz has two parts, and the second one is the important one.
 
 - the row's position in the matching data file,
 - the byte offset of that row's vector in the body,
-- a **binary-quantized** copy of the vector, one bit per dimension, as described in the previous post.
+- a **binary-quantized** copy of the vector, one bit per dimension, as described in that post.
 
 The file ends with the footer's own offset in its last eight bytes, the same trick Parquet uses. A reader can always find its way in with one small read at the end of the file.
 

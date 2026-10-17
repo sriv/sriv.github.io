@@ -54,7 +54,7 @@ So the first real call I had to make was where to spend effort. There were two o
 
 The first one is the more satisfying engineering. It is also capped. A 2x faster decoder is a great result, and it still decodes every row you didn't need.
 
-The second one isn't capped in the same way. If a lookup goes from reading 2,000 row groups to reading 3, no decoder optimization competes with that. I decided to spend most of my time on the second, and the next few posts are about what that turned into: bloom filters at the scan, then indexes the engine builds for itself from the queries it runs.
+The second one isn't capped in the same way. If a lookup goes from reading 2,000 row groups to reading 3, no decoder optimization competes with that. I decided to spend most of my time on the second, and the other notes here are about what that turned into: bloom filters at the scan, then indexes the engine builds for itself from the queries it runs.
 
 The trade-off is that every skipping structure you add is something else to build, store, keep fresh and trust. Which brings me to the rule I kept coming back to.
 
@@ -64,7 +64,7 @@ A pruning structure is allowed to be imprecise in one direction only. It can say
 
 Bloom filters fit this naturally. A bloom filter gives false positives but no false negatives. Min/max statistics fit it too, as long as they're computed correctly. Where it gets dangerous is anything the engine builds or caches for itself, because now the engine is responsible for keeping that structure in step with the data. A stale index that says "no" after new data lands is the worst kind of database bug: nothing crashes, the numbers are just wrong.
 
-Every design in the posts that follow had to survive that rule first and be fast second.
+Every design in the other notes had to survive that rule first and be fast second.
 
 ## What I'd tell someone starting on this
 

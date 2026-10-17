@@ -7,7 +7,7 @@ period: "5 June 2026"
 dek: "Iceberg v4 replaces the manifest list with a root manifest. It sounds like a file rename. It changes what a small commit costs."
 ---
 
-The [previous post](/notes/manifests-are-data-too/) was about manifests becoming Parquet files. This one is about the bigger structural change in version 4 of the Iceberg spec, the **adaptive metadata tree**. It's an explainer of the public spec plus what I learned implementing it. I'll only describe what's in the spec and upstream proposals, not anything specific to how we use it.
+[Manifests are data too](/notes/manifests-are-data-too/) was about manifests becoming Parquet files. This one is about the bigger structural change in version 4 of the Iceberg spec, the **adaptive metadata tree**. It's an explainer of the public spec plus what I learned implementing it. I'll only describe what's in the spec and upstream proposals, not anything specific to how we use it.
 
 ## How an Iceberg commit works today
 
