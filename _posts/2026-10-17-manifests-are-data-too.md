@@ -12,7 +12,7 @@ The first piece I implemented was the smallest-sounding one: writing **manifests
 
 ## What a manifest is, and who reads it
 
-An Iceberg manifest is a list of files. Each entry describes one data file: its path, its partition values, its row count, and statistics for its columns, such as lower and upper bounds and null counts.
+An Iceberg manifest is a list of files. Each entry describes one data file: its path, partition values, row count, and statistics for its columns: lower and upper bounds, null counts and so on.
 
 Two kinds of readers open manifests:
 
@@ -33,7 +33,7 @@ That's exactly the problem the first chapter of this journal was about, just in 
 
 In v4, manifests are Parquet files. The statistics change shape too. Instead of maps of bytes, each table column gets its own typed struct inside a `content_stats` field. A column's bounds are stored as that column's real type, so an `int` column has `int` bounds.
 
-Each stats struct gets a fixed range of field IDs worked out from the table column's own ID: `10_000 + 200 × field-id`. A reader that wants the bounds for column 2 knows exactly which Parquet columns hold them, without looking at anything else.
+Each stats struct gets a fixed block of 200 field IDs, worked out from the table column's own ID: `10_000 + 200 × field-id`. That leaves room for every metric a column can have, including nested ones like geospatial bounds. A reader that wants the bounds for column 2 knows exactly which Parquet columns hold them, without looking at anything else.
 
 {% include diagrams/manifest-columns.svg %}
 
@@ -65,5 +65,5 @@ Parquet isn't free, and it's worth being honest about where it loses:
 
 - **Treat metadata as data.** Everything you know about columnar layout, projection and pruning applies. It's easy to forget, because metadata files feel small, until a table has millions of them.
 - **Look at the commit path, not just planning.** The reads a commit does are narrow and frequent, and they're exactly the kind columnar formats are good at.
-- **Round-trip every type.** Bounds for floats (including `-0.0` and `NaN`), decimals, timestamps and strings all have edge cases. A test that writes and reads back every type is cheap, and it's worth writing before anything else.
+- **Round-trip every type.** Bounds for floats (where `NaN` has no place in the ordering and `-0.0` and `+0.0` compare equal but aren't the same bits), decimals, timestamps and strings all have edge cases. A test that writes and reads back every type is cheap, and it's worth writing before anything else.
 - **Build ahead of a spec behind a switch.** Implementing a proposal early teaches you a lot, but the format will change before it's final, and you don't want existing tables quietly committed to your first guess.
