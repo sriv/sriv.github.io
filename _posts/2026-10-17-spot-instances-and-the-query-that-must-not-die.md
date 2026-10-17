@@ -3,10 +3,10 @@ layout: post
 title: "Spot instances and the query that must not die"
 chapter: 8
 period: "5 October 2025"
-dek: "Spot capacity is the cheapest compute a cloud will sell you, and it comes with a two-minute warning. Deciding where in the stack to absorb that warning was the interesting part."
+dek: "Spot capacity is the cheapest compute a cloud will sell you, and it comes with a short warning before it's taken back. Deciding where in the stack to absorb that warning was the interesting part."
 ---
 
-By the second half of 2025 spot instances were one of the bigger levers we had on cost: spare cloud capacity sold at a deep discount, on the understanding that the provider can take it back. AWS gives you a two-minute warning. Azure and GCP give you notice in their own ways. Then the machine is gone.
+By the second half of 2025 spot instances were one of the bigger levers we had on cost: spare cloud capacity sold at a deep discount, on the understanding that the provider can take it back. AWS gives you a two-minute warning. Azure and GCP give you closer to thirty seconds. Then the machine is gone.
 
 For a stateless web service that's an annoyance. For a distributed query engine it's a real problem. An executor that disappears mid-query takes with it the tasks it was running, any intermediate results it was holding, and, if it happened to be coordinating the query, the query itself.
 
@@ -20,15 +20,15 @@ There are three obvious places to put recovery, and they behave very differently
 
 **Retry the tasks.** The queue that hands out work knows which tasks went to which executor. If an executor dies, its unfinished tasks can be handed to someone else. The query keeps running and only the lost slice is redone.
 
-**Retry the query.** Throw the whole query away and run it again from the top. Simple and always correct, but it can turn a two-minute warning into a ten-minute query.
+**Retry the query.** Throw the whole query away and run it again from the top. Simple and always correct, but it can turn a short interruption into a much longer query.
 
 The answer we landed on was all three, each at the level where it's cheapest, plus a fourth step that comes before any of them: use the warning.
 
 {% include diagrams/spot-timeline.svg %}
 
-## First, use the two minutes
+## First, use the warning
 
-Two minutes is a long time for an executor. Most scan tasks finish in seconds. So the first thing each executor got was a small detector per cloud that watches for the interruption notice: the instance metadata endpoint on AWS, scheduled events on Azure, the preemption signal on GCP.
+Even thirty seconds is a long time for an executor, and two minutes is a lot. Most scan tasks finish in seconds. So the first thing each executor got was a small detector per cloud that watches for the interruption notice: the instance metadata endpoint on AWS, scheduled events on Azure, the preemption signal on GCP.
 
 When the notice arrives, the executor starts **draining**:
 
