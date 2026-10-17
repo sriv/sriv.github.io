@@ -26,7 +26,7 @@ The easy way to distribute a single-node engine is to split the scans across wor
 
 It stops working as the data grows, and Amdahl's law tells you exactly why. Whatever still runs on the coordinator (the joins above the bottom one, final aggregations, window functions, anything over a materialised intermediate result) is the serial part of the job. Add machines and the parallel part shrinks, but the coordinator's share stays put and becomes the whole runtime.
 
-The measure that taught me the most was simply: **what fraction of each query's time is spent on the coordinator?** A rule I'd now give any team: coordinator work should be proportional to the size of the *result*, not the size of the *input*. Any operator that breaks that rule is next on the list to distribute.
+The measure that taught me the most was simply: **what fraction of each query's time is spent on the coordinator?** A rule I'd now give any team: coordinator work should be proportional to the size of the *result*, not the size of the *input*. Any operator that breaks that rule doesn't belong on the coordinator. It's next on the list to distribute.
 
 {% include diagrams/coordinator-share.svg %}
 
@@ -42,7 +42,7 @@ A full run at this scale ties up a fleet of large machines for close to an hour.
 
 What replaced it:
 
-- **Explain the slowdown from the data you already have.** Split each query's wall time into coordinator work, worker compute, time waiting on exchanges, and idle time. The answer was usually already sitting in the logs from the last run.
+- **Stop guessing and explain the slowdown from the data you already have.** Split each query's wall time into coordinator work, worker compute, time waiting on exchanges, and idle time. The answer was usually already sitting in the logs from the last run.
 - **One run per mechanism, with the prediction written first.** If you can't say what number should move and by roughly how much, you don't understand it yet.
 - **Never change two things in one run.** We once changed a setting and the set of queries in the same run, and the result couldn't be compared to anything.
 
@@ -59,7 +59,7 @@ Two cautions from doing this:
 
 Some bugs don't exist until there's more than one node. Two kinds caught me out:
 
-- **A reader that stops reading can block every writer.** A hash join with an empty build side can reasonably decide not to read its probe input at all. In one process that's a free shortcut. In a distributed plan, the probe input is an exchange, and its writers on other machines sit waiting for a reader that will never come. Every consumer of an exchange has to either drain it or say clearly that it's done.
+- **A reader that stops reading can block every writer.** A hash join with an empty build side can reasonably decide not to read its probe input at all, and a `LIMIT` that has seen enough rows can stop reading the rest. In one process that's a free shortcut. In a distributed plan, the probe input is an exchange, and its writers on other machines sit waiting for a reader that will never come. Every consumer of an exchange has to either drain it or say clearly that it's done.
 - **Shared flow control hides in the transport.** Many logical streams multiplexed over one connection share that connection's flow-control window. If enough of them stall, all of them stall. That bug appeared only with two or more nodes and disappeared when buffers were made huge, which is exactly the pattern to look for.
 
 The general lesson is to make hangs talk. A warning that says "this exchange has been stalled for five seconds, and here's who is waiting on whom" turns a frozen query into a bug report.
