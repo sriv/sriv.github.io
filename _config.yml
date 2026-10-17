@@ -1,0 +1,21 @@
+title: Srikanth Venugopalan
+description: Notes from building query engines and lakehouse storage.
+url: https://sriv.github.io
+baseurl: ""
+author:
+  name: Srikanth Venugopalan
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+highlighter: rouge
+permalink: /journal/:title/
+plugins:
+  - jekyll-feed
+feed:
+  path: atom.xml
+exclude:
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+  - vendor

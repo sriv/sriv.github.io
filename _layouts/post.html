@@ -1,0 +1,27 @@
+---
+layout: default
+---
+<article class="entry{% if page.archive %} entry-archive{% endif %}">
+  <header class="entry-head">
+    {% if page.period %}<p class="stamp">{{ page.period }}</p>{% endif %}
+    <h1>{{ page.title }}</h1>
+    {% if page.dek %}<p class="dek">{{ page.dek }}</p>{% endif %}
+    {% if page.archive %}<p class="written">Written {{ page.date | date: "%-d %B %Y" }}. From the old blog, kept as it was.</p>{% endif %}
+  </header>
+  <div class="prose">
+    {{ content }}
+  </div>
+  {% unless page.archive %}
+  <nav class="entry-nav" aria-label="Journal">
+    {% assign chapters = site.posts | where_exp: "p", "p.chapter" | sort: "chapter" %}
+    {% for p in chapters %}
+      {% if p.chapter == page.chapter %}
+        {% assign pi = forloop.index0 | minus: 1 %}
+        {% assign ni = forloop.index0 | plus: 1 %}
+        {% if forloop.first == false %}{% assign prev = chapters[pi] %}<a class="prev" href="{{ prev.url | relative_url }}"><span>Previous</span>{{ prev.title }}</a>{% endif %}
+        {% if forloop.last == false %}{% assign next = chapters[ni] %}<a class="next" href="{{ next.url | relative_url }}"><span>Next</span>{{ next.title }}</a>{% endif %}
+      {% endif %}
+    {% endfor %}
+  </nav>
+  {% endunless %}
+</article>
