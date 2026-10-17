@@ -59,7 +59,7 @@ Two cautions from doing this:
 
 Some bugs don't exist until there's more than one node. Two kinds caught me out:
 
-- **A reader that stops reading can block every writer.** A hash join with an empty build side can reasonably decide not to read its probe input at all, and a `LIMIT` that has seen enough rows can stop reading the rest. In one process that's a free shortcut. In a distributed plan, the probe input is an exchange, and its writers on other machines sit waiting for a reader that will never come. Every consumer of an exchange has to either drain it or say clearly that it's done.
+- **A reader that stops reading can block every writer.** A hash join with an empty build side can reasonably decide not to read its probe input at all, and a `LIMIT` that has seen enough rows can stop reading the rest. In one process that's a free shortcut. In a distributed plan, that input is often an exchange, and its writers on other machines sit waiting for a reader that will never come. Every consumer of an exchange has to either drain it or say clearly that it's done.
 - **Shared flow control hides in the transport.** Many logical streams multiplexed over one connection share that connection's flow-control window. If enough of them stall, all of them stall. That bug appeared only with two or more nodes and disappeared when buffers were made huge, which is exactly the pattern to look for.
 
 The general lesson is to make hangs talk. A warning that says "this exchange has been stalled for five seconds, and here's who is waiting on whom" turns a frozen query into a bug report.
