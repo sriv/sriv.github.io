@@ -60,7 +60,7 @@ Parquet isn't free, and it's worth being honest about where it loses:
 
 - **Tiny files pay a fixed tax.** A Parquet file has a footer, a schema and per-column overhead. A manifest with three entries can come out bigger in Parquet than in Avro.
 - **The schema depends on the table.** Because `content_stats` has one struct per table column, the manifest schema is built from the table schema. Schema evolution has to be handled carefully, which is why the spec says stats are resolved by ID and names are informational only.
-- **Readers have to change.** Every engine that reads manifests needs a Parquet path. While the proposal was still being discussed, we kept the new format behind a switch, so tables could be moved over deliberately rather than all at once.
+- **Readers have to change.** Every engine that reads manifests needs a Parquet path. While the proposal was still being discussed, I kept the new format behind a switch, so tables could be moved over deliberately rather than all at once.
 
 ## What I'd tell someone implementing it
 

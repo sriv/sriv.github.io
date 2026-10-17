@@ -23,7 +23,7 @@ There are three obvious places to put recovery, and they behave very differently
 
 **Retry the query.** Throw the whole query away and run it again from the top. Simple and always correct, but it can turn a short interruption into a much longer query.
 
-The answer we landed on was all three, each at the level where it's cheapest, plus a fourth step that comes before any of them: use the warning.
+The answer I landed on was all three, each at the level where it's cheapest, plus a fourth step that comes before any of them: use the warning.
 
 {% include diagrams/spot-timeline.svg %}
 
@@ -60,9 +60,9 @@ So executors got a **circuit breaker**. After a call to a dead or terminating ex
 - **critical** calls, where the caller needs the answer, fail fast with a clear error, so the retry logic above can take over,
 - **non-critical** calls, like a status poll or a cleanup, quietly return nothing.
 
-That split mattered more than the breaker itself. The first version was strict about everything, and within days we made it more forgiving, letting the non-critical calls degrade gracefully instead of failing.
+That split mattered more than the breaker itself. The first version was strict about everything, and within days I made it more forgiving, letting the non-critical calls degrade gracefully instead of failing.
 
-One more lesson from this stretch: failure handling has a way of calling itself. We had a recovery callback that, a couple of hops later, ended up triggering itself, and it only showed up during real interruptions. If your recovery path can trigger itself, it eventually will.
+One more lesson from this stretch: failure handling has a way of calling itself. There was a recovery callback that, a couple of hops later, ended up triggering itself, and it only showed up during real interruptions. If your recovery path can trigger itself, it eventually will.
 
 ## What I'd tell a team running on spot
 

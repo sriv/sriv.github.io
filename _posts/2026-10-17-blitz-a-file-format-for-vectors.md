@@ -4,10 +4,23 @@ title: "Blitz: a file format for vectors on object storage"
 redirect_from: /journal/blitz-a-file-format-for-vectors/
 chapter: 6
 period: "25 February 2025"
-dek: "Vector search wants a handful of vectors out of millions, at full precision, from storage that charges you per request. No format we tried was built for that, so we wrote a small one that was."
+dek: "Vector search wants a handful of vectors out of millions, at full precision, from storage that charges you per request. No format I tried was built for that, so I wrote a small one that was."
 ---
 
-[What we tried and threw away](/notes/what-we-tried-and-threw-away/) ended with a vector database library taken back out of the engine and a decision to write our own format. Three days later, on 6 January, the first version of **Blitz** went in. By the end of February it had the shape it kept. I talked about it at Rootconf in 2025. This is the written version, with a bit more of the reasoning.
+[What I tried and threw away](/notes/what-we-tried-and-threw-away/) ended with a vector database library taken back out of the engine and a decision to write my own format. Three days later, on 6 January, the first version of **Blitz** went in. By the end of February it had the shape it kept. I talked about it at Rootconf in 2025. This is the written version, with a bit more of the reasoning.
+
+## What the benchmarks said first
+
+Blitz didn't start as a design. It started as a few weeks of reading and benchmarking in December, trying to answer one question before writing any code: which existing format can hand back a few specific vectors, fast, out of a large file?
+
+The test was deliberately plain. Random 1,024-dimension float vectors, a hundred thousand of them and then a million and more, and two workloads: read everything, and fetch a thousand vectors at random. Four candidates:
+
+- **Parquet, as usual.** Fine for reading everything, which is what it's built for.
+- **Parquet, transposed**, so that each vector became its own column and could be read in one contiguous piece. Reads came out roughly sixty times slower than plain Parquet. Worse, at a million vectors neither Parquet layout I'd built could even be opened: the footer outgrew the reader's limit on how large its metadata could be.
+- **Lance**, which was designed with vectors in mind. Its full scans kept up with Parquet. Random fetches through the integration I had at the time were the slowest of the lot at a million vectors. That's one integration at one point in time, not a verdict on the format.
+- **Avro**, using a sorted key-value file with an index alongside. Random fetches stayed flat from a hundred thousand vectors to two million, because the index points straight at the record. Then I varied how often the index records an entry. Going from every record to every two-thousandth record made random fetches more than a thousand times slower.
+
+Two things from that study ended up in the format almost directly. A footer that grows with the wrong thing will eventually stop a file from opening, so it has to grow with something you can bound per file. And for random access, the density of the index is everything: an entry for every record is what keeps a lookup from turning into a scan. Blitz's footer has an entry for every row.
 
 ## What the access pattern looks like
 

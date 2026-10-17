@@ -31,13 +31,13 @@ Here's what the paper version leaves out. On object storage, reading the bloom f
 
 I spent a while on this, including reading the bloom filters as one batch of vectored ranges instead of one after another. Either way, the real fix was not to read them again at all. Data files in an Iceberg or Delta table are immutable: a path, once written, never changes, and compaction writes new files rather than rewriting old ones. So a bloom filter read once is good for as long as the file exists. (Plain directory-based tables can rewrite a file in place, which is a good reason to put the file's size or modification time into the cache key as well.)
 
-So we put a cache in front of the reader: in-process, keyed by file, row group and column, holding the bloom filters we'd already read. We called it the **index store**, because I already suspected it would end up holding more than Parquet's own filters. The first query against a file pays for the bloom reads. Every query after that asks the cache.
+So I put a cache in front of the reader: in-process, keyed by file, row group and column, holding the bloom filters already read. I called it the **index store**, because I already suspected it would end up holding more than Parquet's own filters. The first query against a file pays for the bloom reads. Every query after that asks the cache.
 
 The store also has a default that I think is the most important line in the whole feature. If there is no entry for a key, the answer is "maybe". A missing index never prunes anything. It just means you read the data, the same as before the feature existed.
 
 ## A bug that proved the default
 
-That default earned its keep within a week. We found that the code registering a bloom filter and the code looking it up built the file path slightly differently, so lookups missed. Every miss returned "maybe", every affected row group was read, and the results stayed correct. The only symptom was that pruning didn't prune.
+That default earned its keep within a week. I found that the code registering a bloom filter and the code looking it up built the file path slightly differently, so lookups missed. Every miss returned "maybe", every affected row group was read, and the results stayed correct. The only symptom was that pruning didn't prune.
 
 That's the failure mode you want. A cache-key bug in a pruning structure should cost you performance, never correctness. If the default had been "not found means not present", the same one-line bug would have silently dropped rows from query results, and we might not have noticed for a long time. The fix was a few characters. The lesson was to design the store so that every kind of mistake falls on the slow side.
 
@@ -53,7 +53,7 @@ So entries in the store got a **commit and rollback**:
 - when the task finishes reading the file cleanly, it commits, and the entries become visible,
 - if the task fails or is cancelled, it rolls back, and the transient entries are dropped.
 
-It looks like a lot of ceremony for a cache. It's the part of this work I'm happiest we did early, because everything that came after depends on it.
+It looks like a lot of ceremony for a cache. It's the part of this work I'm happiest I did early, because everything that came after depends on it.
 
 ## What I'd do the same way again
 

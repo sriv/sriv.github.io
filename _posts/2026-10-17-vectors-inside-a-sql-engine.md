@@ -4,7 +4,7 @@ title: "Vectors inside a SQL engine"
 redirect_from: /journal/vectors-inside-a-sql-engine/
 chapter: 4
 period: "17 December 2024"
-dek: "Everyone was standing up a separate vector database. We tried making similarity search just another thing the query engine could do."
+dek: "Everyone was standing up a separate vector database. I tried making similarity search just another thing the query engine could do."
 ---
 
 At the end of 2024 every conversation about search seemed to start with "which vector database?". The usual shape was a second system next to the warehouse: copy the text out, embed it, load the vectors into a dedicated store, and join the results back to the tables in application code.
@@ -28,7 +28,7 @@ LIMIT 10;
 
 The engine embeds the query string once, compares it against the stored vectors for `review_title`, and returns rows. The user never touches a vector.
 
-We went with the second. A query engine's job is to hide physical layout from the person writing SQL. Making them handle 768 or 1,536 floats per row felt like the same mistake as making them pick which Parquet row groups to read. The embeddings became, in effect, a hidden column the engine owns: created by a separate `LOAD VECTOR` job rather than inside anyone's ingestion pipeline, kept beside the table's own files, and used only through functions like `cosine_distance`.
+I went with the second. A query engine's job is to hide physical layout from the person writing SQL. Making them handle 768 or 1,536 floats per row felt like the same mistake as making them pick which Parquet row groups to read. The embeddings became, in effect, a hidden column the engine owns: created by a separate `LOAD VECTOR` job rather than inside anyone's ingestion pipeline, kept beside the table's own files, and used only through functions like `cosine_distance`.
 
 {% include diagrams/vector-column.svg %}
 
@@ -46,9 +46,9 @@ The other big decision was not to start with an approximate index.
 
 Most vector databases lead with HNSW or IVF graphs and clusters. They answer "the nearest 10 vectors" without looking at most of them, at the cost of sometimes missing a true neighbour. They're the right tool for a dedicated, latency-sensitive search service.
 
-We started with exact search: compute the distance to every candidate vector and keep the best. Three reasons:
+I started with exact search: compute the distance to every candidate vector and keep the best. Three reasons:
 
-- **It's always right.** Exact search is the baseline you measure every approximation against. Starting there meant we'd know exactly what we gave up later.
+- **It's always right.** Exact search is the baseline you measure every approximation against. Starting there meant I'd know exactly what I gave up later.
 - **It composes with SQL.** An approximate index answers "nearest overall". Real queries say "nearest among the reviews from last month with rating under 3". With an exact scan, the filter runs first and the distance is computed only on what's left. Combining filters with approximate indexes is a well-known source of quietly bad results.
 - **An analytical engine is good at scans.** Splitting the scan across files and executors, computing distances in vectorized batches, and merging each part's best results is exactly the kind of work the engine already does well.
 
@@ -56,9 +56,9 @@ The cost is obvious: you read every surviving vector. That is fine when filters 
 
 ## Where to keep the vectors
 
-The last open question in December was physical: what format should the vectors be stored in? We had three obvious candidates. Parquet, because everything else was Parquet. Avro, because a row-oriented format reads whole vectors in one go. And Lance, a newer columnar format built with vectors in mind.
+The last open question in December was physical: what format should the vectors be stored in? There were three obvious candidates. Parquet, because everything else was Parquet. Avro, because a row-oriented format reads whole vectors in one go. And Lance, a newer columnar format built with vectors in mind.
 
-I wrote benchmarks to read embeddings through all three in the engine's own scan path. [What we tried and threw away](/notes/what-we-tried-and-threw-away/) covers why we didn't adopt any of them, and how that led to writing our own format in January.
+I wrote benchmarks to read embeddings through all three in the engine's own scan path. [What I tried and threw away](/notes/what-we-tried-and-threw-away/) covers why I didn't adopt any of them, and how that led to writing my own format in January.
 
 ## What I'd tell a team starting on this
 

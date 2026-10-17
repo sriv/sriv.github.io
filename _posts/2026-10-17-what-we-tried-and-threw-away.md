@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "What we tried and threw away"
+title: "What I tried and threw away"
 redirect_from: /journal/what-we-tried-and-threw-away/
 chapter: 5
 period: "3 February 2025"
@@ -21,11 +21,11 @@ Virtual threads did end up in the codebase later, in exactly the place they suit
 
 ## A vector database library inside the engine
 
-When we started on vector search ([the vectors post](/notes/vectors-inside-a-sql-engine/)), one tempting shortcut was to borrow from a project that had already solved vector storage. In December I pulled a vector database library into the executor so I could benchmark its format against Parquet and Avro for reading embeddings.
+When I started on vector search ([the vectors post](/notes/vectors-inside-a-sql-engine/)), one tempting shortcut was to borrow from a project that had already solved vector storage. In December I pulled a vector database library into the executor so I could benchmark its format against Parquet and Avro for reading embeddings.
 
 It came out again on 3 January.
 
-That wasn't a verdict on the library. The question I was really asking was "should our engine's scan path depend on this?", and the answer was no. Taking a dependency like that into the core of a query engine means taking on its release cycle, its memory model and its idea of how files should be laid out and read. Our scan path already had strong opinions about all three: per-file alignment with the table's data, our own caching, our own I/O. We'd just spent months teaching the engine to read fewer bytes, and a library that owns its own file layout would have sat outside all of that. What I needed was a format that fit those opinions, and three days after removing the library we started writing one. That's [Blitz](/notes/blitz-a-file-format-for-vectors/).
+That wasn't a verdict on the library. The question I was really asking was "should our engine's scan path depend on this?", and the answer was no. Taking a dependency like that into the core of a query engine means taking on its release cycle, its memory model and its idea of how files should be laid out and read. Our scan path already had strong opinions about all three: per-file alignment with the table's data, our own caching, our own I/O. I'd just spent months teaching the engine to read fewer bytes, and a library that owns its own file layout would have sat outside all of that. What I needed was a format that fit those opinions, and three days after removing the library I started writing one. That's [Blitz](/notes/blitz-a-file-format-for-vectors/).
 
 **What I took from it:** benchmark against the best available option even when you suspect you won't adopt it. It tells you what "good" looks like, and it makes the case for building your own honestly instead of by default.
 
