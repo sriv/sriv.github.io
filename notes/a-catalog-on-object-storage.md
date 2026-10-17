@@ -21,8 +21,6 @@ The motivation wasn't performance. Postgres is faster at almost everything a cat
 - **Nothing stateful to run.** The catalog becomes a process that can be killed and restarted anywhere, as long as only one copy writes at a time.
 - **Cost proportional to use.** A catalog that serves a few commits a minute doesn't need a database instance sized for peak.
 
-It's not an unusual idea. Someone opened a [Lakekeeper issue proposing exactly this](https://github.com/lakekeeper/lakekeeper/issues/2079) in October 2026. The maintainers' answer is worth quoting in spirit: they don't have the capacity to support another backend upstream, because maintaining one is a lot of continuous effort. Having done it, I agree. That sentence is the most accurate summary of this note.
-
 ## What a backend has to implement
 
 Lakekeeper's backend is chosen at compile time: you hand a storage type to the server. The contract is a set of Rust traits, and it's much bigger than "store table metadata":
@@ -74,7 +72,7 @@ What makes this worse is that it was avoidable. SlateDB has had [transactions wi
 
 **Operations get harder.** There's no SQL console. Debugging means reading keys by hand. Backing up by copying the prefix isn't safe while compaction is rewriting files underneath it. SlateDB has checkpoints for exactly this, but I never wired them into a backup. When something goes wrong, the answer is often "look at the log files in the bucket", which is a sentence nobody wants in a runbook.
 
-**The interface moves.** Lakekeeper changed the backend traits a week after I finished, and the backend didn't compile until I caught up. Every upstream release is a small porting job. That's the maintainers' point, felt from the other side.
+**The interface moves.** Lakekeeper changed the backend traits a week after I finished, and the backend didn't compile until I caught up. Every upstream release is a small porting job, which is the strongest argument against keeping a backend like this outside the project.[^issue]
 
 ## What about FoundationDB?
 
@@ -95,3 +93,5 @@ None of them is wrong. They trade operational weight for concurrency, and the ri
 - **Map conflicts to conflicts.** A 409 makes a client retry. Anything else makes it wonder whether its data is there.
 - **Port the `WHERE` clauses, not just the tables.** The worst bug here was a time condition that didn't make the trip from SQL.
 - **Decide about availability up front.** A single writer is a feature for correctness and a bug for uptime. Know which one your users will notice.
+
+[^issue]: Months after I built this, someone proposed the same idea upstream in [lakekeeper#2079](https://github.com/lakekeeper/lakekeeper/issues/2079) (October 2026), building on SlateDB's transactions, which is the approach I'd take now. The maintainers replied that they don't have the capacity to support another backend upstream, because maintaining one is a lot of continuous effort. Having done it, I agree.

@@ -165,3 +165,8 @@ figure.sketch figcaption { font-size: 0.88rem; color: var(--muted); margin-top: 
 @media (prefers-reduced-motion: no-preference) {
   .chapter-list .post-link, .site-nav a { transition: color 0.15s ease; }
 }
+
+// ---- Footnotes ----
+.footnotes { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); font-size: 0.9rem; color: var(--muted); }
+.footnotes ol { margin-left: 1.2rem; }
+.footnote { font-size: 0.75em; margin-left: 0.1em; }
