@@ -48,7 +48,7 @@ Joins were the hardest case. When the two sides of a join live in different flee
 - **Don't ship either side whole if you can avoid it.** Filter and project first, so the side that travels is only the columns and rows the join needs.
 - **Decide with estimates, and be ready to be wrong.** Size estimates are least reliable exactly where they matter most, on filtered intermediate results. A wrong guess here isn't just slow, it's expensive.
 
-By October, joins between fleets worked end to end. The tests for them were the flakiest thing in the codebase for a while, which brings me to the network.
+By October, joins between fleets worked end to end. Their tests were flaky enough that one had to come out of CI while we chased it down, which brings me to the network.
 
 ## Getting packets across at all
 
@@ -62,11 +62,11 @@ I spent part of September prototyping the third option on [WireGuard](https://ww
 
 ## Where we went further
 
-Everything above is the textbook version, and you can build it from ideas that are already public. At [e6data](https://www.e6data.com/) we didn't stop at locality. How our scheduler decides where each piece of a hybrid query runs, and what it's willing to move to get there, is the part of that year I'm proudest of. It's also the part I can't write about yet. If the textbook version is starting to hurt in your own cross-cloud setup, keep an eye on what we publish.
+Everything above is the textbook version, and you can build it from ideas that are already public. At [e6data](https://www.e6data.com/) we didn't stop at locality. How our scheduler decides where each piece of a hybrid query runs, and what it's willing to move to get there, is the part of that year I'm proudest of. It's also the part I can't write about yet. If the textbook version is hitting its limits in your own cross-cloud setup, keep an eye on what our engineering team writes up.
 
 ## What I'd tell a team going hybrid
 
 - **Make egress the first number in your cost model.** Most of the design falls out of taking it seriously.
 - **Put the boundary in the plan.** An explicit operator for "data crosses fleets here" is easier to optimise, observe and test than a property hidden in the shuffle.
-- **Locality is old; the penalty is new.** Reuse the ideas every distributed engine already has, and tune them for a much steeper cost of getting it wrong.
+- **Locality is old; the penalty is just steeper.** Reuse the ideas every distributed engine already has, and tune them for a much steeper cost of getting it wrong.
 - **Expect flaky tests and treat them as signal.** Tests that span fleets fail in ways single-network tests never do. Most of the time they're telling you something true about timing and failure in a real network.
