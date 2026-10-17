@@ -42,7 +42,7 @@ When it works, the interruption ends right there. The tasks in flight finish ins
 
 When the machine goes before its work is done, the queue has to tell the difference between three states: alive, terminating (we were warned), and dead. "Dead" means it isn't answering *and* it never said it was leaving. That's the case where its incomplete tasks get retried elsewhere, for every query it was taking part in.
 
-The retry is deliberately best-effort. Some work can't simply be replayed: intermediate data that lived only on that machine is gone, and some operators can't restart halfway. When a task-level retry can't put things right, the failure moves up a level instead of being papered over.
+The retry is deliberately best-effort. Some work can't simply be replayed. If the machine was holding part of a join's hash table, or shuffle output that other tasks were waiting to read, that state is gone with it, and redoing one task doesn't bring it back. When a task-level retry can't put things right, the failure moves up a level instead of being papered over.
 
 ## Last, retry the query
 
@@ -52,7 +52,7 @@ It's the most expensive recovery and the rarest, and that's the right way round.
 
 ## Stop calling the dead
 
-The part that surprised me wasn't in any retry. It was in everything *around* a dead executor. Once a machine is gone, every other component that still has its address keeps trying to talk to it: status checks, result fetches, cleanup calls. Each one waits for a timeout. Multiply that by every query and every component, and a single lost executor slows the whole cluster down for minutes.
+The part that needed the most care wasn't the retry logic. It was everything *around* a dead executor. Once a machine is gone, every other component that still has its address keeps trying to talk to it: status checks, result fetches, cleanup calls. Each one waits for a timeout. Multiply that by every query and every component, and a single lost executor slows the whole cluster down for minutes.
 
 So executors got a **circuit breaker**. After a call to a dead or terminating executor fails, the circuit for that address opens and later calls fail immediately instead of waiting. We split calls into two kinds:
 
@@ -69,4 +69,4 @@ One more lesson from this stretch: failure handling has a way of calling itself.
 - **Recover at the lowest level that has enough state.** Tasks for workers, queries for coordinators, and the platform only for the process itself.
 - **Make "terminating" a real state.** Being able to tell "warned and leaving" from "gone without a word" is what makes the rest of the logic sane.
 - **Break the circuit, and decide which calls are allowed to fail quietly.** A dead machine shouldn't cost every other component a timeout.
-- **Test with real interruptions.** Simulated notices are useful, but run it on real spot capacity too. The cloud's timing is never quite what you mocked.
+- **Test with real interruptions.** Simulated notices are useful, but the cloud's timing is never quite what you mocked. Run it on real spot capacity before you trust it.
