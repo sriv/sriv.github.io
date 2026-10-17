@@ -17,10 +17,10 @@ The test was deliberately plain. Random 1,024-dimension float vectors, a hundred
 
 - **Parquet, as usual.** Fine for reading everything, which is what it's built for.
 - **Parquet, transposed**, so that each vector became its own column and could be read in one contiguous piece. Reads came out roughly sixty times slower than plain Parquet. Worse, at a million vectors neither Parquet layout I'd built could even be opened: the footer outgrew the reader's limit on how large its metadata could be.
-- **Lance**, which was designed with vectors in mind. Its full scans kept up with Parquet. Random fetches through the integration I had at the time were the slowest of the lot at a million vectors. That's one integration at one point in time, not a verdict on the format.
+- **Lance**, which was designed with vectors in mind. Its full scans kept up with Parquet. Random fetches through the integration I had at the time were the slowest of the lot at a million vectors. That says more about my integration at the time than about the format itself.
 - **Avro**, using a sorted key-value file with an index alongside. Random fetches stayed flat from a hundred thousand vectors to two million, because the index points straight at the record. Then I varied how often the index records an entry. Going from every record to every two-thousandth record made random fetches more than a thousand times slower.
 
-Two things from that study ended up in the format almost directly. A footer that grows with the wrong thing will eventually stop a file from opening, so it has to grow with something you can bound per file. And for random access, the density of the index is everything: an entry for every record is what keeps a lookup from turning into a scan. Blitz's footer has an entry for every row.
+Two things from that study ended up in the format almost directly. A footer that grows along the wrong dimension will eventually stop a file from opening, so its growth has to be bounded per file. And for random access, the density of the index is everything: an entry for every record is what keeps a lookup from turning into a scan. Blitz's footer has an entry for every row.
 
 ## What the access pattern looks like
 
