@@ -1,0 +1,30 @@
+# Hack n Learn
+
+> Notes by Srikanth Venugopalan on building a distributed, petabyte-scale analytical query engine, and on the architecture around it: query execution, indexing, vector search, lakehouse storage (Apache Iceberg, Parquet), distributed and multi-cloud execution, and what data systems need as AI agents become their users.
+
+The author works on OLAP query engines at e6data. Each note is written from first-hand engineering work and dated to when the work happened. Earlier writing (2012 to 2013) is also on the site.
+
+Every note is available as plain markdown by replacing the trailing slash of its URL with `.md`, and all of them together at https://sriv.github.io/llms-full.txt.
+
+## Notes
+
+- [From one terabyte to ten](https://sriv.github.io/notes/from-one-terabyte-to-ten.md): 16 October 2026. A distributed query engine that works at one terabyte has proved very little about ten. The lessons from this autumn, minus the numbers.
+- [Skipping indexes: how they work and when they pay](https://sriv.github.io/notes/skipping-indexes.md): 23 August 2026. Indexes in an analytical engine don't find rows. They rule out files. A tour of the structures that do it, where Iceberg's Puffin files fit, and what building them taught me.
+- [A metadata tree that grows with the change](https://sriv.github.io/notes/a-metadata-tree-that-grows-with-the-change.md): 5 June 2026. Iceberg v4 replaces the manifest list with a root manifest. It sounds like a file rename. It changes what a small commit costs.
+- [Manifests are data too](https://sriv.github.io/notes/manifests-are-data-too.md): 13 May 2026. Iceberg's metadata files have always been row-oriented Avro. Version 4 makes them Parquet. Everything I'd learned about not reading data turned out to apply to metadata as well.
+- [Porting an idea, not the code](https://sriv.github.io/notes/porting-an-idea-not-the-code.md): 18 December 2025. Bringing dynamic indexes from a Java engine to one built on Rust and DataFusion. What carried over was a handful of rules. Almost none of the code did.
+- [Spot instances and the query that must not die](https://sriv.github.io/notes/spot-instances-and-the-query-that-must-not-die.md): 5 October 2025. Spot capacity is the cheapest compute a cloud will sell you, and it comes with a short warning before it's taken back. Deciding where in the stack to absorb that warning was the interesting part.
+- [One query, many clouds](https://sriv.github.io/notes/one-query-many-clouds.md): 3 October 2025. When the data lives in more than one place, you can move the data to the query or move the query to the data. I spent a good amount of time learning what it takes to do the second.
+- [Blitz: a file format for vectors on object storage](https://sriv.github.io/notes/blitz-a-file-format-for-vectors.md): 25 February 2025. Vector search wants a handful of vectors out of millions, at full precision, from storage that charges you per request. No format I tried was built for that, so I wrote a small one that was.
+- [What I tried and threw away](https://sriv.github.io/notes/what-we-tried-and-threw-away.md): 3 February 2025. Three experiments that didn't make it: virtual threads for the executor, a vector database library, and product quantization. Each one taught me something the successes didn't.
+- [Vectors inside a SQL engine](https://sriv.github.io/notes/vectors-inside-a-sql-engine.md): 17 December 2024. Everyone was standing up a separate vector database. I tried making similarity search just another thing the query engine could do.
+- [Let the queries build the index](https://sriv.github.io/notes/let-the-queries-build-the-index.md): 4 December 2024. Most Parquet files don't carry bloom filters, and we didn't control the writers. So the engine started building its own indexes from data it was reading anyway.
+- [Bloom filters at the scan](https://sriv.github.io/notes/bloom-filters-at-the-scan.md): 20 July 2024. Parquet already knows how to say \"this value isn't here\". Getting an engine to ask cheaply, and to never trust a wrong answer, was the actual work.
+- [The cheapest row is the one you never read](https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read.md): 31 May 2024. Before indexes, vectors or distributed anything, I had to learn where a query engine actually spends its time. The answer: reading things it didn't need.
+
+## About
+
+- [About the author](https://sriv.github.io/about/): background, current focus, open-source work (lead developer of Gauge, 2015 to 2021).
+- [Atom feed](https://sriv.github.io/atom.xml)
+- [GitHub](https://github.com/sriv)
+- [LinkedIn](https://www.linkedin.com/in/srikanth-v-6393b922/)

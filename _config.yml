@@ -1,5 +1,5 @@
 title: Hack n Learn
-description: Notes from building a distributed, petabyte-scale analytical query engine.
+description: Notes from building a distributed, petabyte-scale analytical query engine, and on architecture and data systems in an AI-heavy world.
 url: https://sriv.github.io
 baseurl: ""
 author:
@@ -11,6 +11,7 @@ plugins:
   - jekyll-feed
   - jekyll-seo-tag
   - jekyll-redirect-from
+  - jekyll-sitemap
 
 minima:
   skin: auto
@@ -37,6 +38,15 @@ sass:
 
 exclude:
   - README.md
+  - scripts
+  - journal
   - Gemfile
   - Gemfile.lock
   - vendor
+
+lang: en
+social:
+  name: Srikanth Venugopalan
+  links:
+    - https://github.com/sriv
+    - https://www.linkedin.com/in/srikanth-v-6393b922/
