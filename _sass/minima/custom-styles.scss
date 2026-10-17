@@ -1,114 +1,166 @@
-// Site additions on top of Minima. Kept small on purpose.
+// Hack n Learn: a clean, modern layer on top of Minima.
+// One accent (the diagrams' pen blue), one family (Geist), lots of air.
 
-.chapter-period { margin-bottom: 0.25rem; }
-.dek { font-size: 1.15rem; color: #6a6a6a; margin: 0.5rem 0 0; }
-
-.chapter-list .post-meta { display: block; }
-.chapter-list p { margin: 0.2rem 0 0; color: #6a6a6a; }
-.older-list h2 { font-size: 1.1rem; }
-
-.chapter-nav {
-  display: flex;
-  justify-content: space-between;
-  gap: 2rem;
-  margin-top: 3rem;
-  padding-top: 1rem;
-  border-top: 1px solid #e8e8e8;
-  .next { margin-left: auto; text-align: right; }
-  span { display: block; font-size: 0.85rem; color: #828282; }
-}
-
-// Diagrams: inline SVG, hand-drawn, coloured to follow the light/dark skin.
-figure.sketch { margin: 1.75rem 0 2rem; }
-figure.sketch svg { width: 100%; height: auto; display: block; }
-figure.sketch figcaption { font-size: 0.9rem; color: #828282; margin-top: 0.4rem; }
-.sketch .ink { stroke: #222; }
-.sketch .pen { stroke: #2a4d9b; }
-.sketch .pencil { stroke: #7a7a7a; }
-.sketch .rule { stroke: #c0564f; }
-.sketch .t { fill: #222; font-family: "Kalam", "Bradley Hand", cursive; }
-.sketch .t-pen { fill: #2a4d9b; font-family: "Kalam", "Bradley Hand", cursive; }
-.sketch .t-pencil { fill: #7a7a7a; font-family: "Kalam", "Bradley Hand", cursive; }
-
-@media (prefers-color-scheme: dark) {
-  .dek, .chapter-list p { color: #a0a0a0; }
-  .chapter-nav { border-top-color: #333; }
-  .sketch .ink { stroke: #e0e0e0; }
-  .sketch .pen { stroke: #8fb0f2; }
-  .sketch .pencil { stroke: #9a9a9a; }
-  .sketch .rule { stroke: #d0736b; }
-  .sketch .t { fill: #e0e0e0; }
-  .sketch .t-pen { fill: #8fb0f2; }
-  .sketch .t-pencil { fill: #9a9a9a; }
-}
-
-.older-list .post-list li { margin-bottom: 0.4rem; }
-
-// ---- A little ink: same pen and pencil as the diagrams ----
 :root {
-  --ink: #1f1f1f;
+  --bg: #ffffff;
+  --fg: #18181b;
+  --muted: #6b6b74;
+  --line: #e7e7ea;
+  --accent: #2f5bd3;
+  --chip: #f3f3f5;
+  --code: #f6f6f8;
+  --header: rgba(255, 255, 255, 0.78);
+  // diagram inks
+  --ink: #222;
   --pen: #2a4d9b;
   --pencil: #7a7a7a;
-  --paper: #ffffff;
+  --rule: #c0564f;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --ink: #e4e4e4; --pen: #8fb0f2; --pencil: #9a9a9a; --paper: #181818; }
+  :root {
+    --bg: #141417;
+    --fg: #ececef;
+    --muted: #a1a1aa;
+    --line: #27272c;
+    --accent: #8fb0f2;
+    --chip: #1f1f24;
+    --code: #1b1b20;
+    --header: rgba(20, 20, 23, 0.75);
+    --ink: #e0e0e0;
+    --pen: #8fb0f2;
+    --pencil: #9a9a9a;
+    --rule: #d0736b;
+  }
 }
 
+html { background: var(--bg); }
 body {
-  font-family: "Literata", Georgia, serif;
-  font-size: 18px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 17px;
   line-height: 1.7;
-  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
 }
-h1, h2, h3, .post-title, .post-link { font-family: "Literata", Georgia, serif; letter-spacing: -0.01em; }
-.post-title { font-weight: 600; }
-.post-content h2 { font-weight: 600; margin-top: 2.4rem; }
-.post-content h3 { font-weight: 600; }
-code, pre, kbd { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.85em; }
+.wrapper { max-width: 720px; padding-left: 20px; padding-right: 20px; }
 
-a { color: var(--pen); text-underline-offset: 0.18em; text-decoration-thickness: 1px; }
-a:visited { color: var(--pen); }
+h1, h2, h3, h4 { color: var(--fg); font-weight: 700; letter-spacing: -0.022em; line-height: 1.2; }
+a, a:visited { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 
-// Site name: plain, set in the reading face.
+code, pre, kbd { font-family: "Geist Mono", ui-monospace, monospace; font-size: 0.86em; }
+code { background: var(--code); border: 1px solid var(--line); border-radius: 5px; padding: 0.08em 0.35em; }
+pre, .highlight { background: var(--code) !important; border: 1px solid var(--line); border-radius: 10px; }
+pre code { border: 0; padding: 0; background: none; }
+
+// ---- Header: sticky, translucent ----
+.site-header {
+  position: sticky; top: 0; z-index: 10;
+  min-height: 0;
+  border-top: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--header);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+          backdrop-filter: saturate(180%) blur(12px);
+}
+.header-row::after { display: none; }
+.header-row { display: flex; align-items: center; justify-content: space-between; height: 60px; }
 .site-title, .site-title:visited {
-  font-family: "Literata", Georgia, serif;
-  font-weight: 600;
-  font-size: 1.3rem;
-  letter-spacing: -0.01em;
-  color: var(--ink);
+  font-family: inherit; font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em;
+  line-height: 1; float: none; margin: 0; color: var(--fg);
 }
-.site-title:hover { text-decoration: none; color: var(--pen); }
+.site-title:hover { text-decoration: none; color: var(--accent); }
+.site-nav { position: static; float: none; display: flex; gap: 1.6rem; border: 0; background: none; line-height: 1; }
+.site-nav a, .site-nav a:visited { color: var(--muted); font-size: 0.95rem; font-weight: 500; margin: 0; }
+.site-nav a:hover, .site-nav a[aria-current="page"] { color: var(--fg); text-decoration: none; }
 
-// Dates read as pencil notes in the margin.
-.chapter-period, .chapter-list .post-meta {
-  font-family: "Kalam", "Bradley Hand", cursive;
-  color: var(--pencil);
-  font-size: 1rem;
-}
-.post-header .chapter-period { color: var(--pen); font-size: 1.05rem; }
+.page-content { padding: 0 0 4rem; }
 
-// Notes list: margin date on wide screens, title gets a pen stroke on hover.
-.chapter-list li { margin-bottom: 2rem; }
-.chapter-list h3 { margin: 0; font-size: 1.35rem; font-weight: 600; line-height: 1.3; }
-.post-title { line-height: 1.15; }
-.chapter-list .post-link { color: var(--ink); text-decoration: none; position: relative; }
-.chapter-list .post-link::after {
-  content: "";
-  position: absolute; left: 0; right: 0; bottom: -6px; height: 8px;
-  background: var(--pen);
-  -webkit-mask: url("/assets/img/squiggle.svg") no-repeat left / 100% 100%;
-          mask: url("/assets/img/squiggle.svg") no-repeat left / 100% 100%;
-  clip-path: inset(0 100% 0 0);
-  transition: clip-path 0.35s ease-out;
+// ---- Home ----
+.home .lede {
+  font-size: clamp(1.6rem, 4.2vw, 2.3rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 3.5rem 0 3rem;
+  max-width: 20ch;
 }
-.chapter-list .post-link:hover::after,
-.chapter-list .post-link:focus-visible::after { clip-path: inset(0 0 0 0); }
-@media (prefers-reduced-motion: reduce) {
-  .chapter-list .post-link::after { transition: none; }
+.chapter-list { margin: 0; list-style: none; }
+.chapter-list li {
+  margin: 0;
+  padding: 1.6rem 0;
+  border-top: 1px solid var(--line);
 }
-@media (min-width: 800px) {
-  .chapter-list li { display: grid; grid-template-columns: 9.5rem 1fr; column-gap: 1.5rem; }
-  .chapter-list .post-meta { grid-row: 1 / span 2; padding-top: 0.3rem; text-align: right; }
+.chapter-list .post-meta {
+  display: block;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
 }
-.home > p:first-child { font-size: 1.15rem; color: var(--pencil); margin-bottom: 2.5rem; }
+.chapter-list h3 { margin: 0; font-size: 1.3rem; line-height: 1.3; }
+.chapter-list .post-link, .chapter-list .post-link:visited { color: var(--fg); font-size: inherit; }
+.chapter-list .post-link:hover { color: var(--accent); text-decoration: none; }
+.chapter-list p { margin: 0.4rem 0 0; color: var(--muted); }
+.note-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.8rem; }
+.tag {
+  font-size: 0.75rem; font-weight: 500; color: var(--muted);
+  background: var(--chip); border-radius: 999px; padding: 0.1rem 0.6rem;
+}
+.note-meta .read { font-size: 0.78rem; color: var(--muted); margin-left: auto; }
+
+.older-list { margin-top: 3.5rem; }
+.older-list h2 { font-size: 1rem; color: var(--muted); font-weight: 600; letter-spacing: 0; }
+.older-list .post-list li { margin-bottom: 0.4rem; font-size: 0.95rem; }
+.older-list .post-meta { font-family: "Geist Mono", ui-monospace, monospace; font-size: 0.75rem; color: var(--muted); margin-right: 0.6rem; }
+
+// ---- Post ----
+.post-header { text-align: left; margin: 3.5rem 0 2.5rem; padding-bottom: 2rem; border-bottom: 1px solid var(--line); }
+.post-header .post-title { font-weight: 700; }
+.post-title { font-size: clamp(2rem, 5.5vw, 2.8rem); letter-spacing: -0.035em; line-height: 1.1; margin: 0.6rem 0 0; }
+.chapter-period {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.78rem; color: var(--muted); margin: 0;
+}
+.chapter-period .sep { width: 0.6rem; }
+.chapter-period .tag { font-family: "Geist", sans-serif; }
+.dek { font-size: 1.18rem; color: var(--muted); line-height: 1.55; margin: 1rem 0 0; }
+
+.post-content h2 { font-size: 1.55rem; margin: 3rem 0 0.9rem; }
+.post-content h3 { font-size: 1.2rem; margin: 2.2rem 0 0.6rem; }
+.post-content blockquote { border-left: 3px solid var(--accent); color: var(--muted); padding-left: 1rem; font-style: normal; }
+.post-content table { border: 1px solid var(--line); border-radius: 10px; border-collapse: separate; border-spacing: 0; overflow: hidden; font-size: 0.93rem; width: 100%; }
+.post-content th, .post-content td { border: 0; border-bottom: 1px solid var(--line); padding: 0.6rem 0.8rem; background: none; }
+.post-content th { background: var(--chip); text-align: left; font-weight: 600; }
+.post-content tr:last-child td { border-bottom: 0; }
+
+.chapter-nav {
+  display: flex; justify-content: space-between; gap: 1rem;
+  margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
+  a { flex: 1; max-width: 48%; font-weight: 600; color: var(--fg); line-height: 1.35; }
+  a:hover { color: var(--accent); text-decoration: none; }
+  .next { margin-left: auto; text-align: right; }
+  span { display: block; font-size: 0.75rem; font-weight: 500; color: var(--muted); margin-bottom: 0.3rem; font-family: "Geist Mono", ui-monospace, monospace; }
+}
+
+// ---- Footer ----
+.site-footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+.site-footer a { color: var(--muted); }
+
+// ---- Diagrams: hand-drawn, the one human touch ----
+figure.sketch { margin: 2rem 0 2.25rem; }
+figure.sketch svg { width: 100%; height: auto; display: block; }
+figure.sketch figcaption { font-size: 0.88rem; color: var(--muted); margin-top: 0.5rem; text-align: center; }
+.sketch .ink { stroke: var(--ink); }
+.sketch .pen { stroke: var(--pen); }
+.sketch .pencil { stroke: var(--pencil); }
+.sketch .rule { stroke: var(--rule); }
+.sketch .t { fill: var(--ink); font-family: "Kalam", "Bradley Hand", cursive; }
+.sketch .t-pen { fill: var(--pen); font-family: "Kalam", "Bradley Hand", cursive; }
+.sketch .t-pencil { fill: var(--pencil); font-family: "Kalam", "Bradley Hand", cursive; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .chapter-list .post-link, .site-nav a { transition: color 0.15s ease; }
+}

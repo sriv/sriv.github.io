@@ -1,0 +1,9 @@
+<header class="site-header">
+  <div class="wrapper header-row">
+    <a class="site-title" rel="author" href="{{ "/" | relative_url }}">{{ site.title | escape }}</a>
+    <nav class="site-nav" aria-label="Site">
+      <a href="{{ "/" | relative_url }}"{% if page.url == "/" or page.layout == "post" %} aria-current="page"{% endif %}>Notes</a>
+      <a href="{{ "/about/" | relative_url }}"{% if page.url == "/about/" %} aria-current="page"{% endif %}>About</a>
+    </nav>
+  </div>
+</header>

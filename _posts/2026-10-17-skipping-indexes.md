@@ -1,6 +1,7 @@
 ---
 layout: post
 title: "Skipping indexes: how they work and when they pay"
+tags: [indexes, iceberg]
 chapter: 12
 period: "23 August 2026"
 dek: "Indexes in an analytical engine don't find rows. They rule out files. A tour of the structures that do it, where Iceberg's Puffin files fit, and what building them taught me."

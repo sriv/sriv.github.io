@@ -2,6 +2,7 @@
 layout: post
 title: "A metadata tree that grows with the change"
 redirect_from: /journal/a-metadata-tree-that-grows-with-the-change/
+tags: [iceberg]
 chapter: 11
 period: "5 June 2026"
 dek: "Iceberg v4 replaces the manifest list with a root manifest. It sounds like a file rename. It changes what a small commit costs."

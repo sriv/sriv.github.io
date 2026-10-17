@@ -2,6 +2,7 @@
 layout: post
 title: "One query, many clouds"
 redirect_from: /journal/one-query-many-clouds/
+tags: [distributed]
 chapter: 7
 period: "3 October 2025"
 dek: "When the data lives in more than one place, you can move the data to the query or move the query to the data. I spent a good amount of time learning what it takes to do the second."

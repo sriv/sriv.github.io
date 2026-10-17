@@ -2,15 +2,20 @@
 layout: base
 ---
 <div class="home">
-  <p>Notes from the engine work, decisions and mistakes included.</p>
+  <p class="lede">Notes from the engine work, decisions and mistakes included.</p>
 
-  {%- assign chapters = site.posts | where_exp: "p", "p.chapter" | sort: "chapter" %}
+  {%- assign chapters = site.posts | where_exp: "p", "p.chapter" | sort: "chapter" | reverse %}
   <ul class="post-list chapter-list">
     {%- for p in chapters %}
+    {%- assign words = p.content | number_of_words %}
     <li>
       <span class="post-meta">{{ p.period }}</span>
       <h3><a class="post-link" href="{{ p.url | relative_url }}">{{ p.title | escape }}</a></h3>
       {%- if p.dek %}<p>{{ p.dek }}</p>{% endif %}
+      <div class="note-meta">
+        {%- for t in p.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+        <span class="read">{{ words | divided_by: 230 | plus: 1 }} min read</span>
+      </div>
     </li>
     {%- endfor %}
   </ul>

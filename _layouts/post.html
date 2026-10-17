@@ -5,7 +5,8 @@ layout: base
 
   <header class="post-header">
     {%- if page.period %}
-    <p class="post-meta chapter-period">{{ page.period }}</p>
+    {%- assign words = content | number_of_words %}
+    <p class="post-meta chapter-period">{{ page.period }}<span class="sep"></span>{{ words | divided_by: 230 | plus: 1 }} min read{% for t in page.tags %}<span class="tag">{{ t }}</span>{% endfor %}</p>
     {%- elsif page.archive %}
     <p class="post-meta">{{ page.date | date: "%b %-d, %Y" }}, from the old blog</p>
     {%- endif %}

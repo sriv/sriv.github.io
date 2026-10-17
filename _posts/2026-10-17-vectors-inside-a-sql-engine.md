@@ -2,6 +2,7 @@
 layout: post
 title: "Vectors inside a SQL engine"
 redirect_from: /journal/vectors-inside-a-sql-engine/
+tags: [vectors]
 chapter: 4
 period: "17 December 2024"
 dek: "Everyone was standing up a separate vector database. I tried making similarity search just another thing the query engine could do."

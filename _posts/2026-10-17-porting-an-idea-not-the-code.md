@@ -2,6 +2,7 @@
 layout: post
 title: "Porting an idea, not the code"
 redirect_from: /journal/porting-an-idea-not-the-code/
+tags: [rust, datafusion, indexes]
 chapter: 9
 period: "18 December 2025"
 dek: "Bringing dynamic indexes from a Java engine to one built on Rust and DataFusion. What carried over was a handful of rules. Almost none of the code did."
