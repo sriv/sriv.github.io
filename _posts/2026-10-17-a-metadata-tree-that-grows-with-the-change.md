@@ -1,14 +1,12 @@
 ---
 layout: post
 title: "A metadata tree that grows with the change"
-chapter: 10
-period: "13 May 2026"
+chapter: 11
+period: "5 June 2026"
 dek: "Iceberg v4 replaces the manifest list with a root manifest. It sounds like a file rename. It changes what a small commit costs."
 ---
 
-This year I moved down a layer. After two years inside query engines, deciding what not to read, I started working on the table format underneath them: [Apache Iceberg](https://iceberg.apache.org/), and specifically the metadata changes going into version 4 of its spec.
-
-This chapter is about the biggest of those changes, the **adaptive metadata tree**. It's an explainer of the public spec plus what I learned implementing it. I'll only describe what's in the spec and upstream proposals, not anything specific to how we use it.
+The [last chapter](/journal/manifests-are-data-too/) was about manifests becoming Parquet files. This one is about the bigger structural change in version 4 of the Iceberg spec, the **adaptive metadata tree**. It's an explainer of the public spec plus what I learned implementing it. I'll only describe what's in the spec and upstream proposals, not anything specific to how we use it.
 
 ## How an Iceberg commit works today
 
@@ -35,7 +33,7 @@ Version 4 removes the manifest list. Each snapshot points to a single **root man
 - **leaf manifests**, which hold data files,
 - older v1–v3 manifests, so existing tables can be upgraded without rewriting history.
 
-Both root and leaf manifests are Parquet files in v4, not Avro. That gets its own chapter, because it matters as much as the tree.
+Both root and leaf manifests are Parquet files in v4, not Avro, which is what the previous chapter was about.
 
 {% include diagrams/metadata-tree.svg %}
 
@@ -68,4 +66,3 @@ A few other v4 rules changed how I wrote code more than I expected:
 
 **Write down the invariants and test them on purpose.** The spec says each file must appear in at most one live entry across the snapshot, and it explicitly doesn't require writers to check that at commit time. That's a reasonable spec decision, and it means the checking is on you. Randomized sequences of appends, compactions and retries, checked against a written-down list of invariants, are the cheapest way I know to find the bugs that hide in retries.
 
-The next chapter goes into the other half of v4: what changes when manifests themselves become Parquet files, and why that made commits cheaper too.
