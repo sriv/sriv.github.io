@@ -13,7 +13,7 @@ The workaround was to raise the timeout. That works, but it means every user wit
 
 ## The issue that framed it
 
-In September 2018 a user, Thunderforge, [opened an issue](https://github.com/getgauge/gauge/issues/1176) with a better framing than any of us had written down. Gauge kills the plugin after a fixed number of seconds, "regardless of if the plugin is actively doing work". It should instead find out whether the plugin is still doing work, and only kill it if it isn't. They suggested one way to tell: look at the timestamps of the plugin's log files.
+In September 2018 a user [opened an issue](https://github.com/getgauge/gauge/issues/1176) with a better framing than any of us had written down. Gauge kills the plugin after a fixed number of seconds, "regardless of if the plugin is actively doing work". It should instead find out whether the plugin is still doing work, and only kill it if it isn't. They suggested one way to tell: look at the timestamps of the plugin's log files.
 
 That's the right question. A fixed timeout tries to tell a slow plugin from a stuck one by how long it takes, and that can't work, because a slow plugin on a big project and a stuck one look identical for the first four seconds, and for the first forty.
 
