@@ -2,11 +2,11 @@
 layout: post
 title: "The cheapest row is the one you never read"
 chapter: 1
-period: "16 May 2024"
+period: "31 May 2024"
 dek: "Before indexes, vectors or distributed anything, I had to learn where a query engine actually spends its time. The answer: reading things it didn't need."
 ---
 
-In April 2024 I moved onto the execution side of our query engine. It's a pipelined, vectorized engine written in Java that runs SQL over Parquet files sitting in object storage. I'd used engines like this for years. I had never had to make one faster.
+At the end of May 2024 I moved onto the execution side of our query engine. It's a pipelined, vectorized engine written in Java that runs SQL over Parquet files sitting in object storage. I'd used engines like this for years. I had never had to make one faster.
 
 My instinct was to go looking for a slow operator, a join that spilled or an aggregation that hashed badly. So I spent the first couple of weeks with a profiler and a set of slow queries, and the profiles kept telling me something else. The joins and aggregations weren't where the time went. It went into getting bytes off object storage, decompressing them, and turning them into column vectors, often for rows that a filter would throw away two operators later.
 
