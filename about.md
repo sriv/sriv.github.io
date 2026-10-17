@@ -3,9 +3,9 @@ layout: page
 title: About
 permalink: /about/
 ---
-I'm Srikanth. I work on OLAP query engines at [e6data](https://www.e6data.com). Some of that is the part of an engine that decides how little work a query can get away with: indexes built from the queries themselves, vector search inside SQL, and the Iceberg metadata layer underneath it all. The rest is the part that decides where and how the work runs: distribution and workload management.
+I'm Srikanth. I work on OLAP query engines at [e6data](https://www.e6data.com). Some of that is the part of an engine that decides how little work a query can get away with: indexes built from the queries themselves, vector search inside SQL, and the Iceberg metadata layer underneath it all. The rest is about where that work actually runs: distribution and workload management.
 
-Lately I've been looking at how agents use OLAP engines. Agents query differently from people and dashboards, and I'm working on what it takes to get an engine ready for that, both in the interface it offers and in the infrastructure it needs underneath.
+Lately I've been looking at how agents use OLAP engines. Agents query differently from people and dashboards, and I'm working on what it takes to get an engine ready for that, both in the interface it offers and in the infrastructure it requires.
 
 Most of what I care about comes down to a few beliefs:
 
