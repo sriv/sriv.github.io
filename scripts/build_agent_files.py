@@ -65,7 +65,7 @@ for n in notes:
     open(os.path.join(ROOT, "notes", n["slug"] + ".md"), "w").write(doc)
     full.append(doc)
 
-intro = f"""# Hack n Learn
+intro = f"""# hack-n-learn
 
 > Notes by {AUTHOR} on building a distributed, petabyte-scale analytical query engine, and on the architecture around it: query execution, indexing, vector search, lakehouse storage (Apache Iceberg, Parquet), distributed and multi-cloud execution, and what data systems need as AI agents become their users.
 
