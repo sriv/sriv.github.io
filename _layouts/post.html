@@ -19,7 +19,7 @@ layout: base
 
   {%- if page.chapter %}
   {%- assign chapters = site.posts | where_exp: "p", "p.chapter" | sort: "chapter" %}
-  <nav class="chapter-nav" aria-label="Journal">
+  <nav class="chapter-nav" aria-label="Notes">
     {%- for p in chapters %}
       {%- if p.chapter == page.chapter %}
         {%- assign pi = forloop.index0 | minus: 1 %}

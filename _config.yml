@@ -10,6 +10,7 @@ plugins:
   - jekyll-remote-theme
   - jekyll-feed
   - jekyll-seo-tag
+  - jekyll-redirect-from
 
 minima:
   skin: auto
@@ -26,7 +27,7 @@ minima:
 markdown: kramdown
 kramdown:
   input: GFM
-permalink: /journal/:title/
+permalink: /notes/:title/
 feed:
   path: atom.xml
 

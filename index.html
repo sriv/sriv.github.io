@@ -2,11 +2,9 @@
 layout: base
 ---
 <div class="home">
-  <p>I work on query engines, mostly on the parts that decide what not to read.</p>
-  <p>This is my engineering journal. It starts in May 2024 and follows the work in order: indexes inside the engine, vectors in SQL, queries that run across more than one cloud, and lately the metadata layer of the lakehouse. Each chapter is written from my notes for that period.</p>
+  <p>Notes from building OLAP query engines, in the order the work happened.</p>
 
   {%- assign chapters = site.posts | where_exp: "p", "p.chapter" | sort: "chapter" %}
-  <h2 class="post-list-heading">Journal</h2>
   <ul class="post-list chapter-list">
     {%- for p in chapters %}
     <li>

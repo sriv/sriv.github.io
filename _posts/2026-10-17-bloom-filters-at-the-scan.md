@@ -1,16 +1,17 @@
 ---
 layout: post
 title: "Bloom filters at the scan"
+redirect_from: /journal/bloom-filters-at-the-scan/
 chapter: 2
 period: "20 July 2024"
 dek: "Parquet already knows how to say \"this value isn't here\". Getting an engine to ask cheaply, and to never trust a wrong answer, was the actual work."
 ---
 
-The [last chapter](/journal/the-cheapest-row-is-the-one-you-never-read/) ended on point lookups: `WHERE order_id = 42` on a big table, where min/max statistics are useless because every row group spans the whole range of IDs. In July 2024 that was the first thing I went after.
+The [previous post](/notes/the-cheapest-row-is-the-one-you-never-read/) ended on point lookups: `WHERE order_id = 42` on a big table, where min/max statistics are useless because every row group spans the whole range of IDs. In July 2024 that was the first thing I went after.
 
 Parquet has an answer to this built in. A writer can store a **bloom filter** for a column in each row group. Ask it "could 42 be in this row group?" and it says either "no" or "maybe". If it says no, it's right. If it says maybe, it's right most of the time, and the rest of the time you pay for a read that finds nothing.
 
-That's exactly the "maybe, never a wrong no" shape from chapter 1. On paper, the job was small: read the bloom filter, ask it, skip the row group on a "no". The bloom filter turned out to be the easy part.
+That's exactly the "maybe, never a wrong no" shape from the first post. On paper, the job was small: read the bloom filter, ask it, skip the row group on a "no". The bloom filter turned out to be the easy part.
 
 ## Where the check goes
 
@@ -52,7 +53,7 @@ So entries in the store got a **commit and rollback**:
 - when the task finishes reading the file cleanly, it commits, and the entries become visible,
 - if the task fails or is cancelled, it rolls back, and the transient entries are dropped.
 
-It looks like a lot of ceremony for a cache. It's the part of this work I'm happiest we did early, because everything in the next chapter depends on it.
+It looks like a lot of ceremony for a cache. It's the part of this work I'm happiest we did early, because everything in the next post depends on it.
 
 ## What I'd do the same way again
 
@@ -61,6 +62,6 @@ Two things from that month that I still apply:
 - **Make "unknown" the safe answer.** Any structure that can skip work should treat missing or broken metadata as "read it". Then bugs show up in latency graphs rather than in someone's quarterly numbers.
 - **Price the metadata read.** On object storage, metadata isn't free. Cache anything immutable, and measure how much time goes into asking the index before celebrating what the index saves.
 
-There was one more lesson that set up the next chapter. Most Parquet files in the wild don't have bloom filters at all. Common writers leave them off by default, and you rarely control the writer. If we wanted bloom-filter pruning on the tables people actually had, the engine would have to build the filters itself, from the data it was already reading.
+There was one more lesson that set up the next post. Most Parquet files in the wild don't have bloom filters at all. Common writers leave them off by default, and you rarely control the writer. If we wanted bloom-filter pruning on the tables people actually had, the engine would have to build the filters itself, from the data it was already reading.
 
-That's chapter 3: letting the queries build the index.
+That's the next post: letting the queries build the index.

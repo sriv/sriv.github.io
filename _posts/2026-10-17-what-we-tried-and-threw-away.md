@@ -1,12 +1,13 @@
 ---
 layout: post
 title: "What we tried and threw away"
+redirect_from: /journal/what-we-tried-and-threw-away/
 chapter: 5
 period: "3 February 2025"
 dek: "Three experiments that didn't make it: virtual threads for the executor, a vector database library, and product quantization. Each one taught me something the successes didn't."
 ---
 
-Journals of engineering work tend to read like a list of things that worked. This chapter is the other list. Over those few months I tried at least three things that never shipped in the form I first built them. I think they're worth writing down, partly because each one changed what we did next, and partly because knowing when to stop is a skill I've had to learn on purpose.
+Engineering write-ups tend to read like a list of things that worked. This post is the other list. Over those few months I tried at least three things that never shipped in the form I first built them. I think they're worth writing down, partly because each one changed what we did next, and partly because knowing when to stop is a skill I've had to learn on purpose.
 
 ## Virtual threads for the executor
 
@@ -20,11 +21,11 @@ Virtual threads did end up in the codebase later, in exactly the place they suit
 
 ## A vector database library inside the engine
 
-When we started on vector search ([chapter 4](/journal/vectors-inside-a-sql-engine/)), one tempting shortcut was to borrow from a project that had already solved vector storage. In December I pulled a vector database library into the executor so I could benchmark its format against Parquet and Avro for reading embeddings.
+When we started on vector search ([the vectors post](/notes/vectors-inside-a-sql-engine/)), one tempting shortcut was to borrow from a project that had already solved vector storage. In December I pulled a vector database library into the executor so I could benchmark its format against Parquet and Avro for reading embeddings.
 
 It came out again on 3 January.
 
-That wasn't a verdict on the library. The question I was really asking was "should our engine's scan path depend on this?", and the answer was no. Taking a dependency like that into the core of a query engine means taking on its release cycle, its memory model and its idea of how files should be laid out and read. Our scan path already had strong opinions about all three: per-file alignment with the table's data, our own caching, our own I/O. We'd just spent months teaching the engine to read fewer bytes, and a library that owns its own file layout would have sat outside all of that. What I needed was a format that fit those opinions, and three days after removing the library we started writing one. That's the next chapter.
+That wasn't a verdict on the library. The question I was really asking was "should our engine's scan path depend on this?", and the answer was no. Taking a dependency like that into the core of a query engine means taking on its release cycle, its memory model and its idea of how files should be laid out and read. Our scan path already had strong opinions about all three: per-file alignment with the table's data, our own caching, our own I/O. We'd just spent months teaching the engine to read fewer bytes, and a library that owns its own file layout would have sat outside all of that. What I needed was a format that fit those opinions, and three days after removing the library we started writing one. That's the next post.
 
 **What I took from it:** benchmark against the best available option even when you suspect you won't adopt it. It tells you what "good" looks like, and it makes the case for building your own honestly instead of by default.
 

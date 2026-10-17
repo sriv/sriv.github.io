@@ -1,6 +1,7 @@
 ---
 layout: post
 title: "One query, many clouds"
+redirect_from: /journal/one-query-many-clouds/
 chapter: 7
 period: "3 October 2025"
 dek: "When the data lives in more than one place, you can move the data to the query or move the query to the data. We spent most of 2025 learning what it takes to do the second."

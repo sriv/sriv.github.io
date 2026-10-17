@@ -1,6 +1,7 @@
 ---
 layout: post
 title: "Manifests are data too"
+redirect_from: /journal/manifests-are-data-too/
 chapter: 10
 period: "13 May 2026"
 dek: "Iceberg's metadata files have always been row-oriented Avro. Version 4 makes them Parquet. Everything I'd learned about not reading data turned out to apply to metadata as well."
@@ -8,7 +9,7 @@ dek: "Iceberg's metadata files have always been row-oriented Avro. Version 4 mak
 
 This year I moved down a layer. After two years inside query engines, deciding what not to read, I started working on the table format underneath them: [Apache Iceberg](https://iceberg.apache.org/), and specifically the metadata changes going into version 4 of its spec.
 
-The first piece I implemented was the smallest-sounding one: writing **manifests** as Parquet instead of Avro. At the time it was a proposal under discussion upstream. It has since landed in the v4 spec. This chapter is about why such a dull-sounding change matters, and why it helped commits as well as queries.
+The first piece I implemented was the smallest-sounding one: writing **manifests** as Parquet instead of Avro. At the time it was a proposal under discussion upstream. It has since landed in the v4 spec. This post is about why such a dull-sounding change matters, and why it helped commits as well as queries.
 
 ## What a manifest is, and who reads it
 
@@ -16,7 +17,7 @@ An Iceberg manifest is a list of files. Each entry describes one data file: its 
 
 Two kinds of readers open manifests:
 
-- **Query planning** reads them to decide which data files a query needs, using the partition values and column bounds. This is the pruning ladder from [chapter 1](/journal/the-cheapest-row-is-the-one-you-never-read/), one level up.
+- **Query planning** reads them to decide which data files a query needs, using the partition values and column bounds. This is the pruning ladder from [the first post](/notes/the-cheapest-row-is-the-one-you-never-read/), one level up.
 - **Commits** read them too, which is easy to forget. A compaction has to confirm the files it's replacing are still in the table. A retried commit has to look at what changed underneath it. A snapshot summary needs counts.
 
 In versions 1 to 3, a manifest is an Avro file, which stores data row by row. To get any field of an entry, you decode the whole entry.
@@ -27,7 +28,7 @@ The column statistics are where it shows. In v1–v3 each entry stores them as m
 
 Picture a wide table with a few hundred columns and a query that filters on one of them. Every manifest entry carries bound maps for all of those columns, and planning decodes all of it to find the one pair of bounds it needs. Most of the bytes read during planning belong to columns the query never mentions.
 
-That's exactly the problem the first chapter of this journal was about, just in metadata instead of data. And the fix is the same one.
+That's exactly the problem the first post here was about, just in metadata instead of data. And the fix is the same one.
 
 ## Parquet manifests
 

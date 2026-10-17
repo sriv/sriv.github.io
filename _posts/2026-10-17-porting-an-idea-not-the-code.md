@@ -1,12 +1,13 @@
 ---
 layout: post
 title: "Porting an idea, not the code"
+redirect_from: /journal/porting-an-idea-not-the-code/
 chapter: 9
 period: "18 December 2025"
 dek: "Bringing dynamic indexes from a Java engine to one built on Rust and DataFusion. What carried over was a handful of rules. Almost none of the code did."
 ---
 
-By the end of 2025 the team was building a native executor in Rust on top of [Apache DataFusion](https://datafusion.apache.org/). I'd spent a good part of the previous year on dynamic indexes in our Java engine ([chapter 3](/journal/let-the-queries-build-the-index/)), so in December I took on bringing them across.
+By the end of 2025 the team was building a native executor in Rust on top of [Apache DataFusion](https://datafusion.apache.org/). I'd spent a good part of the previous year on dynamic indexes in our Java engine ([the post on lazily built indexes](/notes/let-the-queries-build-the-index/)), so in December I took on bringing them across.
 
 I expected a translation job and got something closer to a redesign. Writing an idea a second time, in a different engine, shows you which parts of it were the idea and which parts were just how the first engine happened to be built.
 
@@ -55,7 +56,7 @@ That one change removed a surprising amount of code:
 - **Uniform size.** Every filter for a given expected row count is the same size, which makes memory accounting predictable.
 - **Mergeable.** Two filters of the same size combine with a bitwise OR, so filters built in pieces can be joined without going back to the data.
 
-The one thing to be careful of is that the hash has to be stable and has to agree between the side that builds the filter and the side that probes it. Hash `5` as an `INT` when you build the filter, probe it with the `BIGINT` literal the query planner produced, and you get a wrong "no". It's the same bug from [chapter 2](/journal/bloom-filters-at-the-scan/) in different clothes.
+The one thing to be careful of is that the hash has to be stable and has to agree between the side that builds the filter and the side that probes it. Hash `5` as an `INT` when you build the filter, probe it with the `BIGINT` literal the query planner produced, and you get a wrong "no". It's the same bug from [the bloom filter post](/notes/bloom-filters-at-the-scan/) in different clothes.
 
 ## What I'd tell someone porting a subsystem
 

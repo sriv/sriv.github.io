@@ -1,12 +1,13 @@
 ---
 layout: post
 title: "A metadata tree that grows with the change"
+redirect_from: /journal/a-metadata-tree-that-grows-with-the-change/
 chapter: 11
 period: "5 June 2026"
 dek: "Iceberg v4 replaces the manifest list with a root manifest. It sounds like a file rename. It changes what a small commit costs."
 ---
 
-The [last chapter](/journal/manifests-are-data-too/) was about manifests becoming Parquet files. This one is about the bigger structural change in version 4 of the Iceberg spec, the **adaptive metadata tree**. It's an explainer of the public spec plus what I learned implementing it. I'll only describe what's in the spec and upstream proposals, not anything specific to how we use it.
+The [previous post](/notes/manifests-are-data-too/) was about manifests becoming Parquet files. This one is about the bigger structural change in version 4 of the Iceberg spec, the **adaptive metadata tree**. It's an explainer of the public spec plus what I learned implementing it. I'll only describe what's in the spec and upstream proposals, not anything specific to how we use it.
 
 ## How an Iceberg commit works today
 
@@ -33,7 +34,7 @@ Version 4 removes the manifest list. Each snapshot points to a single **root man
 - **leaf manifests**, which hold data files,
 - older v1–v3 manifests, so existing tables can be upgraded without rewriting history.
 
-Both root and leaf manifests are Parquet files in v4, not Avro, which is what the previous chapter was about.
+Both root and leaf manifests are Parquet files in v4, not Avro, which is what that post was about.
 
 {% include diagrams/metadata-tree.svg %}
 
