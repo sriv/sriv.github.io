@@ -9,7 +9,7 @@ Every note is available as plain markdown by replacing the trailing slash of its
 ## Notes
 
 - [From one terabyte to ten](https://sriv.github.io/notes/from-one-terabyte-to-ten.md): 16 October 2026. A distributed query engine that works at one terabyte has proved very little about ten. The lessons from this autumn, minus the numbers.
-- [Skipping indexes: how they work and when they pay](https://sriv.github.io/notes/skipping-indexes.md): 23 August 2026. Indexes in an analytical engine don't find rows. They rule out files. A tour of the structures that do it, where Iceberg's Puffin files fit, and what building them taught me.
+- [Indexes in an analytical engine: how they work and when they pay](https://sriv.github.io/notes/skipping-indexes.md): 23 August 2026. Most indexes in an analytical engine exist to rule data out; a few point straight at rows. How each kind works, when it pays, where Iceberg's Puffin files fit, and what building them taught me.
 - [A metadata tree that grows with the change](https://sriv.github.io/notes/a-metadata-tree-that-grows-with-the-change.md): 5 June 2026. Iceberg v4 replaces the manifest list with a root manifest. It sounds like a file rename. It changes what a small commit costs.
 - [Manifests are data too](https://sriv.github.io/notes/manifests-are-data-too.md): 13 May 2026. Iceberg's metadata files have always been row-oriented Avro. Version 4 makes them Parquet. Everything I'd learned about not reading data turned out to apply to metadata as well.
 - [Porting an idea, not the code](https://sriv.github.io/notes/porting-an-idea-not-the-code.md): 18 December 2025. Bringing dynamic indexes from a Java engine to one built on Rust and DataFusion. What carried over was a handful of rules. Almost none of the code did.

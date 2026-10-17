@@ -105,22 +105,22 @@ All of the above is ground any team will cover when they distribute a single-nod
 
 ---
 
-# Skipping indexes: how they work and when they pay
+# Indexes in an analytical engine: how they work and when they pay
 
 By Srikanth Venugopalan, 23 August 2026. Topics: indexes, iceberg.
 Canonical: https://sriv.github.io/notes/skipping-indexes/
 
-> Indexes in an analytical engine don't find rows. They rule out files. A tour of the structures that do it, where Iceberg's Puffin files fit, and what building them taught me.
+> Most indexes in an analytical engine exist to rule data out; a few point straight at rows. How each kind works, when it pays, where Iceberg's Puffin files fit, and what building them taught me.
 
-Say "index" to someone who grew up on OLTP databases and they picture a B-tree: a structure that takes a key and walks to the row. Analytical engines over object storage mostly don't have those, and mostly don't want them. The data is immutable files, the queries touch millions of rows, and a pointer to one row isn't worth much when the unit you pay for is a request to fetch part of a file.
+Say "index" to someone who grew up on OLTP databases and they picture a B-tree: a structure that takes a key and walks to the row. Analytical engines have indexes too, but most of them are built for a different job. A query that aggregates millions of rows doesn't need a pointer to one of them. It needs to avoid reading the files and row groups that can't contribute. And when the data sits in object storage as immutable files, the unit you pay for is a request, not a row.
 
-The indexes that matter in that world answer a different question: **which pieces of data can I prove don't contain what this query wants?** They're skipping indexes. They never say where a row is, only where it can't be. Everything in [the cheapest row is the one you never read](https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/) applies to them, including the one rule that matters most: an index may answer "maybe" as often as it likes, but it must never give a wrong "no".
+So the indexes in this note fall into two groups. Most are **skipping indexes**. They answer "which pieces of data can I prove don't contain what this query wants?", and say where a value can't be rather than where it is. A few, such as inverted and bitmap indexes, do point at rows: they hand the scan the exact positions worth decoding. Engines like Apache Druid, Apache Pinot and Apache Doris rely heavily on that second kind. Everything in [the cheapest row is the one you never read](https://sriv.github.io/notes/the-cheapest-row-is-the-one-you-never-read/) applies to both, including the one rule that matters most: an index may answer "maybe" as often as it likes, but it must never give a wrong "no".
 
 I spent a good part of this year building a family of these indexes on Iceberg tables, from the writer that produces them to the reader that trusts them. This note is the general version: what each structure is, when it pays, where it lives, and the ways I've seen them go wrong.
 
 ## The ladder
 
-A skipping index works at some granularity, and the granularity decides both what it saves and what it costs.
+An index works at some granularity, and the granularity decides both what it saves and what it costs.
 
 [Diagram: The skipping ladder, from coarse to fine: partition (value-to-file maps, partition bounds), file (bounds in manifests, value sets, blooms), row group (Parquet statistics and blooms), page (Parquet page index), row (inverted index postings). Coarser levels are cheaper to ask, finer levels more precise. On object storage the file level saves the most.]
 
@@ -174,7 +174,7 @@ The **term dictionary** maps each distinct token to where its postings live. A g
 
 The **postings** are, for each term, the set of row positions containing it. Compressed bitmaps such as Roaring are the usual format: they pick a dense or sparse representation per block of 65,536 positions, and intersecting two of them for `a AND b` is fast.
 
-Unlike everything above, an inverted index can work at row granularity. The scan reads the file, but only decodes the rows the bitmap names.
+Unlike the structures above, an inverted index locates rows rather than ruling out chunks. The scan reads the file, but only decodes the rows the bitmap names.
 
 **When they pay:** token search over text, where neither bounds nor value sets can help.
 
@@ -244,7 +244,7 @@ Most of what went wrong this year wasn't in the structures. It was in the plumbi
 
 ## The short version
 
-Skipping indexes are a hierarchy of cheap questions, each one asked so that a more expensive question never has to be. Pick the granularity where the cost is, pick the structure the predicate needs, store it where the reader can fetch it in one request, and treat every way it can go stale or incomplete as a correctness bug, because that's what it is.
+Indexes in an analytical engine are mostly a hierarchy of cheap questions, each one asked so that a more expensive question never has to be. Pick the granularity where the cost is, pick the structure the predicate needs, store it where the reader can fetch it in one request, and treat every way it can go stale or incomplete as a correctness bug, because that's what it is.
 
 ---
 
