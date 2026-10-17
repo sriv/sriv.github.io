@@ -24,7 +24,7 @@ When we started on vector search ([chapter 4](/journal/vectors-inside-a-sql-engi
 
 It came out again on 3 January.
 
-That wasn't a verdict on the library. The question I was really asking was "should our engine's scan path depend on this?", and the answer was no. Taking a dependency like that into the core of a query engine means taking on its release cycle, its memory model and its idea of how files should be laid out and read. Our scan path already had strong opinions about all three: per-file alignment with the table's data, our own caching, our own I/O. What I needed was a format that fit those opinions, and three days after removing the library we started writing one. That's the next chapter.
+That wasn't a verdict on the library. The question I was really asking was "should our engine's scan path depend on this?", and the answer was no. Taking a dependency like that into the core of a query engine means taking on its release cycle, its memory model and its idea of how files should be laid out and read. Our scan path already had strong opinions about all three: per-file alignment with the table's data, our own caching, our own I/O. We'd just spent months teaching the engine to read fewer bytes, and a library that owns its own file layout would have sat outside all of that. What I needed was a format that fit those opinions, and three days after removing the library we started writing one. That's the next chapter.
 
 **What I took from it:** benchmark against the best available option even when you suspect you won't adopt it. It tells you what "good" looks like, and it makes the case for building your own honestly instead of by default.
 
@@ -34,7 +34,7 @@ The third experiment was about making brute-force vector search cheaper. Exact s
 
 **Product quantization** (PQ) is the classic approach. Split each vector into sub-vectors, run k-means on each slice of the dataset to learn a small codebook, and store each sub-vector as the ID of its nearest codebook entry. You get large compression and decent distance estimates.
 
-In late January I built a PQ prototype on a branch. Then I reverted it.
+In late January I built a PQ prototype on a branch. It never made it to main.
 
 PQ needs **training**. The codebooks are learned from the data, so every table needs a k-means step before its vectors can be compressed, and codebooks drift as data changes. For a search service with one big, stable index that's a fine trade. For an engine where vectors arrive with each new data file, it's an extra build step with its own failure modes and tuning, on the critical path of every load.
 
@@ -48,4 +48,4 @@ A week later I tried the much blunter tool, **binary quantization**: keep one bi
 
 None of these were mistakes, and none of them were wasted. Each one ran for weeks at most. Each one lived on a branch until it earned its way into main, and each one changed the next decision: where to use virtual threads, whether to build our own vector format, which quantization to use.
 
-The pattern I try to follow now is simple. Give an experiment a question to answer, not a feature to ship. When it has answered the question, stop, even if the answer is "no", and write down why. The writing-down part is what I usually skip, and it's the part that would have saved me from re-running the same experiment a year later.
+The pattern I try to follow now is simple. Give an experiment a question to answer, not a feature to ship. When it has answered the question, stop, even if the answer is "no", and write down why. The writing-down part is the one I'm most tempted to skip, and it's the only thing that stops someone, often me, from running the same experiment again a year later.
