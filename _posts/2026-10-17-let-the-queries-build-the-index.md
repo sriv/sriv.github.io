@@ -30,18 +30,20 @@ I went with lazy. The price is that the first query isn't faster, only the ones 
 
 Building the filter is easy. Building one that never gives a wrong "no" took most of the work, and almost all of it came down to one question: did this task see *every* row of the row group it's about to vouch for?
 
-A few ways the answer can quietly be "no":
+Some ways the answer can quietly be "no":
 
 - **The task fails partway.** Half a file's values went into the filter, then the executor ran out of memory. That's what the commit and rollback from chapter 2 were for. Nothing becomes visible until the task finishes the file cleanly, and a failed task throws its transient filters away.
 - **The query stops early.** This is the one I'm glad we caught. A query with a `LIMIT` can stop reading a file as soon as it has enough rows. Its filter would only contain the values it happened to read before stopping, and a later query looking for a value further down the file would be told "no". So scans that can stop early don't build indexes at all.
 - **Two tasks index the same file at once.** Both build a filter, both try to commit. We made registration first-writer-wins and had a task build the index only if it was the one that registered it, so a slower duplicate couldn't overwrite a finished index.
+- **The batch was already filtered.** If anything removes rows before the builder sees them, say a cheap predicate pushed into the reader, the filter only knows about the survivors. A later query asking for one of the removed values gets a "no". The builder has to see rows before any predicate touches them. This one comes back in a later chapter, when the reader underneath changed.
+- **The column isn't what its name says.** Tables get columns renamed, and Delta tables can map logical column names to different physical ones. An index keyed on the name a query uses can end up describing the wrong data. We fixed this for mapped columns in August by keying on the physical column.
 - **The filter is sized wrong.** A bloom filter is sized for an expected number of distinct values. Guess too low and it fills up and starts saying "maybe" to everything. That's not a correctness bug, but it quietly turns the feature off. Getting the expected-insertions number right was an early fix.
 
 None of these are exotic. They're the normal life of a scan task in a distributed engine. That's the point: an index built inside the query path inherits every way a query can end badly, and each one needs an answer before you trust the index to skip data.
 
 ## Indexing expressions, not just columns
 
-Users don't always filter on a raw column. A common pattern is `WHERE CAST(order_date AS DATE) = '2024-08-01'` or a `SUBSTRING` of an identifier. A bloom filter on `order_date` can't answer that, because the stored values aren't the values being compared.
+Users don't always filter on a raw column. A common pattern is something like `WHERE SUBSTRING(order_id, 1, 4) = 'EU01'`, or a `CAST` of a string column to a date. A bloom filter on `order_id` can't answer that, because the stored values aren't the values being compared.
 
 In August we extended dynamic indexes to expressions. The scan evaluates the expression, `CAST` or a nested `CAST(SUBSTRING(...))`, on the batch it's already reading, and puts the *results* into the filter. The tricky bit is the key. Two queries that cast the same column to different types must not share an index. So the index key includes a hash of the function and its arguments, not just the column name.
 
@@ -59,7 +61,7 @@ So we made them persistent:
 
 That last point is chapter 2's default doing its job again. A slow or failed index load can't make a query wrong, only temporarily slower. The load has a timeout so one stuck read can't hold up the rest.
 
-The in-memory store also needed a budget. Bloom filters for a big table add up. We made the store bounded, by entry count or by memory, switchable per deployment, so the index can never become the thing that takes an executor down. A colleague later added a guard that decides whether to index at all based on table size, which is the kind of simple rule that saves more than it looks like it should.
+The in-memory store also needed a budget. Bloom filters for a big table add up. We made the store bounded, by entry count or by memory, switchable per deployment, so the index can never become the thing that takes an executor down. A colleague later added a guard that decides whether to index at all based on table size.
 
 ## What I'd tell a team starting on this
 
