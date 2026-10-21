@@ -1,5 +1,5 @@
 title: hack-n-learn
-description: Notes from building a distributed, petabyte-scale analytical query engine, and on architecture and data systems in an AI-heavy world.
+description: Notes about software, system design and architecture. Lately: building a petabyte-scale analytical query engine.
 url: https://sriv.github.io
 baseurl: ""
 author:

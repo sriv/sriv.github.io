@@ -2,7 +2,7 @@
 layout: base
 ---
 <div class="home">
-  <p class="lede">Notes from building a distributed, petabyte-scale analytical query engine.</p>
+  <p class="lede">Notes about software, system design and architecture. Lately: building a petabyte-scale analytical query engine.</p>
   <p class="sublede">Along the way: system architecture, lakehouse storage, and what data systems need as AI agents become their users. What I tried, what held up, and what I'd do differently.</p>
 
   {%- assign chapters = site.posts | where_exp: "p", "p.when" | sort: "when" | reverse %}
