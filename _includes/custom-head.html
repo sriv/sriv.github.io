@@ -6,3 +6,6 @@
 {%- assign slug = page.url | split: '/' | last %}
 <link rel="alternate" type="text/markdown" title="This note as markdown" href="{{ '/notes/' | append: slug | append: '.md' | absolute_url }}">
 {%- endif %}
+{%- if site.goatcounter and jekyll.environment == "production" %}
+<script data-goatcounter="https://{{ site.goatcounter }}.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+{%- endif %}

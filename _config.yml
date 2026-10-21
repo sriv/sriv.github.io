@@ -50,3 +50,6 @@ social:
   links:
     - https://github.com/sriv
     - https://www.linkedin.com/in/srikanth-v-6393b922/
+
+# GoatCounter site code (the part before .goatcounter.com). Empty = no analytics.
+goatcounter:
